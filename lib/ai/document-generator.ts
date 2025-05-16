@@ -221,13 +221,6 @@ export async function generateLinkedInOptimizationTips(linkedInData: any): Promi
     return optimizationTips;
   } catch (error) {
     console.error('Error generating LinkedIn optimization tips:', error);
-    // Return some generic tips if AI processing fails
-    return [
-      "Add industry-specific keywords to your headline to improve visibility in searches.",
-      "Make your summary section tell a compelling story about your career journey.",
-      "Quantify achievements in your experience sections to demonstrate impact.",
-      "Add more relevant skills to increase endorsement opportunities.",
-      "Request recommendations from colleagues to enhance credibility."
-    ];
+    throw new Error('Failed to generate LinkedIn profile optimization tips');
   }
 }

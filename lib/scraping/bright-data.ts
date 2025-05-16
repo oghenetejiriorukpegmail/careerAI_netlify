@@ -1,8 +1,4 @@
-/**
- * Integration with Bright Data MCP (Mobile Carrier Proxies) for web scraping
- * This is a simulation of the actual implementation since we don't have direct
- * access to Bright Data services in this environment
- */
+import axios from 'axios';
 
 // Types for job data
 export interface JobListing {
@@ -48,67 +44,93 @@ interface LinkedInEducation {
 }
 
 /**
- * Simulated function to scrape LinkedIn profile
- * In a real implementation, this would use Bright Data MCP to scrape the data
- * @param profileUrl LinkedIn profile URL
- * @returns Scraped LinkedIn profile data
+ * Get Bright Data MCP configuration
+ * @returns Bright Data configuration object
  */
-export async function scrapeLinkedInProfile(profileUrl: string): Promise<LinkedInProfile> {
-  // In a real implementation, this would call Bright Data's API
-  // For now, we'll simulate a response
+function getBrightDataConfig() {
+  const username = process.env.BRIGHT_DATA_USERNAME;
+  const password = process.env.BRIGHT_DATA_PASSWORD;
+  const zone = process.env.BRIGHT_DATA_ZONE || 'data_center';
   
-  console.log(`Simulating scraping LinkedIn profile: ${profileUrl}`);
-  
-  // Wait to simulate API call
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  // Generate a sample profile based on the URL
-  const username = profileUrl.split('/in/')[1]?.replace(/\/$/, '') || 'johndoe';
+  if (!username || !password) {
+    throw new Error('Bright Data credentials not configured');
+  }
   
   return {
-    profile_url: profileUrl,
-    full_name: username.split('-').map(name => name.charAt(0).toUpperCase() + name.slice(1)).join(' '),
-    headline: 'Software Developer at Tech Company',
-    summary: 'Experienced software developer with a passion for creating efficient, scalable applications.',
-    experience: [
-      {
-        title: 'Senior Software Developer',
-        company: 'Tech Company',
-        location: 'San Francisco, CA',
-        date_range: '2020 - Present',
-        description: 'Leading development of cloud-based solutions.'
-      },
-      {
-        title: 'Software Developer',
-        company: 'Startup Inc.',
-        location: 'New York, NY',
-        date_range: '2017 - 2020',
-        description: 'Full-stack development using React and Node.js.'
-      }
-    ],
-    education: [
-      {
-        institution: 'University of Technology',
-        degree: 'Bachelor of Science',
-        field: 'Computer Science',
-        date_range: '2013 - 2017'
-      }
-    ],
-    skills: [
-      'JavaScript', 'React', 'Node.js', 'TypeScript', 'SQL', 'Python', 'AWS'
-    ],
-    certifications: [
-      'AWS Certified Developer', 'Google Cloud Professional Developer'
-    ],
-    recommendations: 12,
-    connections: '500+',
-    profile_image_url: 'https://example.com/profile-image.jpg'
+    auth: {
+      username,
+      password
+    },
+    proxyUrl: `http://brd.superproxy.io:22225`,
+    zone
   };
 }
 
 /**
- * Simulated function to scrape job listings from major job boards
- * In a real implementation, this would use Bright Data MCP
+ * Scrape LinkedIn profile using Bright Data MCP
+ * @param profileUrl LinkedIn profile URL
+ * @returns Scraped LinkedIn profile data
+ */
+export async function scrapeLinkedInProfile(profileUrl: string): Promise<LinkedInProfile> {
+  const config = getBrightDataConfig();
+  
+  try {
+    // Call Bright Data's collector API
+    const response = await axios.post('https://api.brightdata.com/scrape', {
+      collector: 'linkedin_profile_collector',
+      url: profileUrl,
+      config: {
+        // Bright Data specific configurations
+        wait_for: '.profile-section',
+        country: 'us',
+        browser: 'chrome'
+      }
+    }, {
+      auth: config.auth,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    // Transform response data to our internal format
+    const data = response.data;
+    
+    if (!data || !data.profile) {
+      throw new Error('Failed to retrieve LinkedIn profile data');
+    }
+    
+    return {
+      profile_url: profileUrl,
+      full_name: data.profile.name,
+      headline: data.profile.headline,
+      summary: data.profile.summary,
+      experience: data.profile.experience?.map((exp: any) => ({
+        title: exp.title,
+        company: exp.company,
+        location: exp.location,
+        date_range: exp.date_range,
+        description: exp.description
+      })) || [],
+      education: data.profile.education?.map((edu: any) => ({
+        institution: edu.school,
+        degree: edu.degree,
+        field: edu.field_of_study,
+        date_range: edu.date_range
+      })) || [],
+      skills: data.profile.skills || [],
+      certifications: data.profile.certifications?.map((cert: any) => cert.name) || [],
+      recommendations: data.profile.recommendations_count,
+      connections: data.profile.connections,
+      profile_image_url: data.profile.profile_image_url
+    };
+  } catch (error) {
+    console.error('Error scraping LinkedIn profile:', error);
+    throw new Error('Failed to scrape LinkedIn profile data');
+  }
+}
+
+/**
+ * Scrape job listings from major job boards using Bright Data MCP
  * @param keywords Keywords to search for
  * @param location Location to search in (optional)
  * @param sources Job boards to search (defaults to all)
@@ -119,129 +141,103 @@ export async function scrapeJobListings(
   location?: string,
   sources: Array<'linkedin' | 'indeed' | 'dice'> = ['linkedin', 'indeed', 'dice']
 ): Promise<JobListing[]> {
-  console.log(`Simulating job scraping for keywords: ${keywords.join(', ')}`);
-  if (location) {
-    console.log(`Location: ${location}`);
-  }
-  console.log(`Sources: ${sources.join(', ')}`);
-  
-  // Wait to simulate API call
-  await new Promise(resolve => setTimeout(resolve, 3000));
-  
-  // Generate sample job listings
-  const jobTitles = [
-    'Software Developer', 'Full Stack Engineer', 'Frontend Developer',
-    'Backend Engineer', 'DevOps Engineer', 'Data Scientist', 'Product Manager'
-  ];
-  
-  const companies = [
-    'Google', 'Amazon', 'Microsoft', 'Apple', 'Facebook', 'Netflix',
-    'Airbnb', 'Uber', 'Tesla', 'Twitter'
-  ];
-  
-  const locations = location ? 
-    [location, 'Remote'] : 
-    ['San Francisco, CA', 'New York, NY', 'Seattle, WA', 'Austin, TX', 'Remote'];
-  
+  const config = getBrightDataConfig();
   const results: JobListing[] = [];
   
-  // Generate 10-15 random job listings
-  const count = Math.floor(Math.random() * 6) + 10;
-  
-  for (let i = 0; i < count; i++) {
-    const source = sources[Math.floor(Math.random() * sources.length)];
-    const jobTitle = jobTitles[Math.floor(Math.random() * jobTitles.length)];
-    const company = companies[Math.floor(Math.random() * companies.length)];
-    const jobLocation = locations[Math.floor(Math.random() * locations.length)];
-    
-    // Generate a description that incorporates some of the keywords
-    const relevantKeywords = keywords.filter(() => Math.random() > 0.3);
-    const keywordText = relevantKeywords.length > 0 
-      ? `We're looking for someone with experience in ${relevantKeywords.join(', ')}.`
-      : '';
+  try {
+    // Run scraping for each source in parallel
+    const promises = sources.map(async (source) => {
+      let collectorName;
+      switch(source) {
+        case 'linkedin':
+          collectorName = 'linkedin_jobs_collector';
+          break;
+        case 'indeed':
+          collectorName = 'indeed_jobs_collector';
+          break;
+        case 'dice':
+          collectorName = 'dice_jobs_collector';
+          break;
+      }
       
-    results.push({
-      id: `job-${i}-${Date.now()}`,
-      job_title: jobTitle,
-      company_name: company,
-      location: jobLocation,
-      job_url: `https://example.com/${source}/jobs/${company.toLowerCase()}-${jobTitle.toLowerCase().replace(/\s+/g, '-')}`,
-      description: `${company} is seeking a ${jobTitle} to join our team. ${keywordText} This role involves developing scalable applications and collaborating with cross-functional teams.`,
-      source: source,
-      posted_date: `${Math.floor(Math.random() * 14) + 1} days ago`,
-      salary_range: Math.random() > 0.5 ? `$${100 + Math.floor(Math.random() * 50)}K - $${150 + Math.floor(Math.random() * 50)}K` : undefined
+      // Call Bright Data's collector API
+      const response = await axios.post('https://api.brightdata.com/scrape', {
+        collector: collectorName,
+        search_query: keywords.join(' '),
+        location: location || '',
+        config: {
+          // Bright Data specific configurations
+          country: 'us',
+          browser: 'chrome',
+          max_results: 50
+        }
+      }, {
+        auth: config.auth,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      // Transform response data to our internal format
+      if (response.data && Array.isArray(response.data.results)) {
+        return response.data.results.map((job: any) => ({
+          id: job.id || `${source}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          job_title: job.title || job.job_title,
+          company_name: job.company || job.company_name,
+          location: job.location,
+          job_url: job.url || job.job_url,
+          description: job.description || '',
+          source: source,
+          posted_date: job.posted_date || job.date,
+          salary_range: job.salary || job.salary_range
+        }));
+      }
+      
+      return [];
     });
+    
+    // Combine results from all sources
+    const allResults = await Promise.all(promises);
+    return allResults.flat();
+  } catch (error) {
+    console.error('Error scraping job listings:', error);
+    throw new Error('Failed to scrape job listings');
   }
-  
-  return results;
 }
 
 /**
- * Simulated function to scrape a job description from a URL
+ * Scrape a job description from a URL using Bright Data MCP
  * @param jobUrl URL to the job posting
  * @returns Job description text
  */
 export async function scrapeJobDescription(jobUrl: string): Promise<string> {
-  console.log(`Simulating job description scraping from: ${jobUrl}`);
+  const config = getBrightDataConfig();
   
-  // Wait to simulate API call
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  // Parse the URL to get job title and company
-  const urlPath = jobUrl.split('/').pop() || '';
-  const parts = urlPath.split('-');
-  
-  const company = parts[0] ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1) : 'Company';
-  
-  // Reconstruct job title from URL
-  const titleParts = parts.slice(1);
-  const jobTitle = titleParts.map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
-  
-  return `
-Job Title: ${jobTitle}
-Company: ${company}
-Location: San Francisco, CA (Remote options available)
-
-About ${company}:
-${company} is a leading technology company focused on creating innovative solutions that transform industries. Our mission is to deliver cutting-edge products that solve real-world problems while fostering a culture of creativity and collaboration.
-
-Job Description:
-We are seeking a talented ${jobTitle} to join our growing team. In this role, you will be responsible for designing, developing, and maintaining software applications that meet our customers' needs. You will work closely with cross-functional teams to deliver high-quality solutions on time and within budget.
-
-Responsibilities:
-- Design, develop, and maintain software applications using modern technologies
-- Collaborate with product managers, designers, and other engineers to define and implement new features
-- Write clean, maintainable, and efficient code
-- Participate in code reviews and ensure code quality
-- Troubleshoot and debug issues as they arise
-- Stay up-to-date with emerging trends and technologies
-
-Requirements:
-- Bachelor's degree in Computer Science, Engineering, or a related field
-- 3+ years of experience in software development
-- Proficiency in at least one programming language (e.g., JavaScript, Python, Java)
-- Experience with web development frameworks (e.g., React, Angular, Vue)
-- Strong problem-solving and analytical skills
-- Excellent communication and teamwork abilities
-- Experience with Agile/Scrum development methodologies
-
-Preferred Qualifications:
-- Master's degree in Computer Science or related field
-- Experience with cloud platforms (AWS, Azure, GCP)
-- Knowledge of database systems (SQL, NoSQL)
-- Understanding of CI/CD pipelines
-- Experience with microservices architecture
-
-Benefits:
-- Competitive salary and equity package
-- Comprehensive health, dental, and vision insurance
-- 401(k) with company match
-- Flexible work arrangements
-- Professional development opportunities
-- Paid time off and company holidays
-
-${company} is an equal opportunity employer and values diversity at our company. We do not discriminate on the basis of race, religion, color, national origin, gender, sexual orientation, age, marital status, veteran status, or disability status.
-
-To apply, please submit your resume and a cover letter explaining why you're interested in joining our team.
-  `;
+  try {
+    // Call Bright Data's collector API
+    const response = await axios.post('https://api.brightdata.com/scrape', {
+      collector: 'job_description_collector',
+      url: jobUrl,
+      config: {
+        // Bright Data specific configurations
+        wait_for: '.job-description',
+        country: 'us',
+        browser: 'chrome'
+      }
+    }, {
+      auth: config.auth,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.data || !response.data.description) {
+      throw new Error('Failed to retrieve job description');
+    }
+    
+    return response.data.description;
+  } catch (error) {
+    console.error('Error scraping job description:', error);
+    throw new Error('Failed to scrape job description');
+  }
 }

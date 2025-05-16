@@ -155,13 +155,7 @@ export async function extractStructuredResumeData(resumeText: string): Promise<P
     return structuredData;
   } catch (error) {
     console.error('Error extracting structured data from resume:', error);
-    // Return a basic structure if AI parsing fails
-    return {
-      contactInfo: {},
-      experience: [],
-      education: [],
-      skills: []
-    };
+    throw new Error('Failed to extract structured data from resume');
   }
 }
 
@@ -206,13 +200,7 @@ export async function parseJobDescription(jobDescriptionText: string): Promise<P
     return structuredData;
   } catch (error) {
     console.error('Error parsing job description:', error);
-    // Return a basic structure if AI parsing fails
-    return {
-      requirements: [],
-      responsibilities: [],
-      qualifications: [],
-      keywords: []
-    };
+    throw new Error('Failed to parse job description');
   }
 }
 
@@ -252,7 +240,6 @@ export async function getPotentialJobTitles(resumeData: ParsedResume): Promise<s
     return jobTitles;
   } catch (error) {
     console.error('Error generating potential job titles:', error);
-    // Return an empty array if AI processing fails
-    return [];
+    throw new Error('Failed to generate potential job titles');
   }
 }
