@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/client';
-import * as pdf from 'pdf-parse';
 import mammoth from 'mammoth';
+import { extractDocumentText } from '@/lib/documents/pdf-parser';
 import { extractStructuredResumeData } from '@/lib/documents/document-parser';
 
 /**
@@ -60,26 +60,33 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // 2. Parse the document based on file type
+    // 2. Parse the document using our unified document parser
     let documentText = '';
     
     try {
-      if (fileType === 'application/pdf') {
-        const pdfData = await pdf(buffer);
-        documentText = pdfData.text;
-      } else if (fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        const docxResult = await mammoth.extractRawText({ buffer });
-        documentText = docxResult.value;
+      console.log(`Parsing document with type: ${fileType}`);
+      
+      // Use our unified document text extractor
+      documentText = await extractDocumentText(buffer, fileType, mammoth);
+      
+      console.log(`Document parsing successful, extracted ${documentText.length} characters`);
+      
+      if (!documentText || documentText.trim().length < 50) {
+        console.warn('Document parsing returned very little text, content may be incomplete');
       }
     } catch (parseError: any) {
       console.error('Error parsing document:', parseError);
-      // Continue anyway, we can still save the file reference
+      
+      // Create a minimal placeholder text to allow the process to continue
+      documentText = `Resume: ${fileName}. Content could not be extracted. File type: ${fileType}.`;
+      
+      // Return partial success
       return NextResponse.json({
         success: true,
         uploadSuccess: true,
         parseSuccess: false,
         data: uploadData,
-        error: `File uploaded but parsing failed: ${parseError.message}`
+        error: `File uploaded but parsing failed: ${parseError.message || 'Unknown parsing error'}`
       });
     }
 
