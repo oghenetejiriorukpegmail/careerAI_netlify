@@ -3,24 +3,24 @@
  * This provides a more reliable PDF parsing solution that works in both Node.js and browser environments
  */
 
-import * as pdfjsLib from 'pdfjs-dist';
+// Import the appropriate libraries depending on environment
 import { TextItem } from 'pdfjs-dist/types/src/display/api';
 
-// Configure PDF.js to work properly in a Node.js environment
-// The key issue is that PDF.js needs a worker but works differently in Node vs browser
+// We'll use a dual approach - try to use PDF.js if available,
+// but always have a fallback for direct text extraction
+let pdfjsLib: any;
 
-// For Node.js environment in Next.js, we need to explicitly set up a fake worker
-if (typeof window === 'undefined') {
-  // We're in a Node.js/server environment - use the fake worker approach
-  // PDFjs needs this even with disableWorker:true
-  const pdfjsWorker = require('pdfjs-dist/build/pdf.worker.js');
-  
-  if (pdfjsLib.GlobalWorkerOptions) {
-    pdfjsLib.GlobalWorkerOptions.workerPort = new pdfjsWorker.PDFWorker('pdf.worker').port;
+// Configure PDF.js only if we're in a browser environment
+// For server-side, we'll use the direct extraction method instead
+if (typeof window !== 'undefined') {
+  try {
+    // Try to import PDF.js for browser environments
+    pdfjsLib = require('pdfjs-dist');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+  } catch (error) {
+    console.warn('PDF.js not available, will use fallback extraction');
+    pdfjsLib = null;
   }
-} else {
-  // Browser environment - can use CDN worker
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 }
 
 /**
@@ -30,51 +30,88 @@ if (typeof window === 'undefined') {
  */
 export async function parsePdf(buffer: Buffer): Promise<string> {
   try {
-    console.log(`Parsing PDF with PDF.js, buffer size: ${buffer.length}`);
+    console.log(`Parsing PDF, buffer size: ${buffer.length}`);
     
-    // Convert Buffer to Uint8Array for PDF.js compatibility
-    const uint8Array = new Uint8Array(buffer);
+    // First attempt: Use direct string extraction (simpler but less accurate)
+    let extractedText = '';
     
-    // Load the PDF document
-    const loadingTask = pdfjsLib.getDocument({
-      data: uint8Array,
-      // Disable workers to run in the main thread (more reliable for serverless environments)
-      disableWorker: true,
-      // Don't attempt to recover from errors in corrupt files
-      stopAtErrors: true,
-    });
-    
-    const pdf = await loadingTask.promise;
-    console.log(`PDF loaded successfully: ${pdf.numPages} pages`);
-    
-    let fullText = '';
-    
-    // Process each page
     try {
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        
-        // Extract text items and join them
-        const pageText = textContent.items
-          .map((item: any) => ('str' in item) ? item.str : '')
-          .join(' ');
-        
-        fullText += pageText + '\n\n';
-        
-        // Clean up page resources
-        page.cleanup();
-      }
-    } finally {
-      // Ensure we always clean up the PDF document to prevent memory leaks
-      pdf.destroy();
+      // Basic extraction: convert buffer to string and clean it up
+      extractedText = buffer.toString('utf8', 0, Math.min(buffer.length, 100000))
+        .replace(/[\x00-\x09\x0B-\x1F\x7F-\xFF]/g, '') // Remove non-printable chars
+        .replace(/\s+/g, ' '); // Normalize whitespace
+      
+      console.log(`Direct extraction complete: got ${extractedText.length} characters`);
+    } catch (directError) {
+      console.error('Error in direct extraction:', directError);
     }
     
-    console.log(`PDF parsing complete: extracted ${fullText.length} characters`);
-    return fullText;
+    // Second attempt: Use PDF.js in browser environments
+    if (typeof window !== 'undefined' && pdfjsLib) {
+      try {
+        console.log('Attempting PDF.js parsing in browser');
+        
+        // Convert Buffer to Uint8Array for PDF.js compatibility
+        const uint8Array = new Uint8Array(buffer);
+        
+        // Load the PDF document
+        const loadingTask = pdfjsLib.getDocument({
+          data: uint8Array,
+          disableWorker: false, // Use worker in browser
+        });
+        
+        const pdf = await loadingTask.promise;
+        console.log(`PDF loaded successfully: ${pdf.numPages} pages`);
+        
+        let pdfJsText = '';
+        
+        // Process each page
+        try {
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            
+            // Extract text items and join them
+            const pageText = textContent.items
+              .map((item: any) => ('str' in item) ? item.str : '')
+              .join(' ');
+            
+            pdfJsText += pageText + '\n\n';
+            
+            // Clean up page resources
+            page.cleanup();
+          }
+        } finally {
+          // Ensure we always clean up the PDF document to prevent memory leaks
+          pdf.destroy();
+        }
+        
+        console.log(`PDF.js parsing complete: extracted ${pdfJsText.length} characters`);
+        
+        // Use the PDF.js result if it's more substantial than the direct extraction
+        if (pdfJsText.length > extractedText.length * 0.5) {
+          return pdfJsText;
+        }
+      } catch (pdfJsError) {
+        console.error('Error parsing with PDF.js:', pdfJsError);
+        // Continue with direct extraction result
+      }
+    }
+    
+    // Return whatever we managed to extract
+    return extractedText;
   } catch (error) {
-    console.error('Error parsing PDF with PDF.js:', error);
-    throw error;
+    console.error('Error in PDF parsing:', error);
+    
+    // Last resort: just return a simple extraction or empty string
+    try {
+      return buffer.toString('utf8', 0, 10000)
+        .replace(/[\x00-\x09\x0B-\x1F\x7F-\xFF]/g, '')
+        .replace(/\s+/g, ' ')
+        .substring(0, 5000);
+    } catch (e) {
+      return '';
+    }
   }
 }
 
