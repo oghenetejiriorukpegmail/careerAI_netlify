@@ -2,8 +2,9 @@
 export const AI_CONFIG = {
   // OpenRouter configuration for Qwen model
   openRouter: {
+    // Use Qwen model as specified
     apiKey: process.env.OPENROUTER_API_KEY || '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',
-    model: 'qwen/qwen3-235b-a22b:free' // Updated to the correct free model name
+    model: 'qwen/qwen3-235b-a22b:free' // Use the Qwen model as requested
   },
   
   // Gemini configuration (fallback)
@@ -18,16 +19,22 @@ export async function queryOpenRouter(prompt: string, systemPrompt?: string) {
   try {
     console.log(`Calling OpenRouter API with key: ${AI_CONFIG.openRouter.apiKey.substring(0, 10)}...`);
     
-    // Ensure the API key doesn't have any spaces or formatting issues
-    const cleanedApiKey = AI_CONFIG.openRouter.apiKey.trim();
+    // Get the API key and ensure it's properly formatted
+    const apiKey = AI_CONFIG.openRouter.apiKey.trim();
+    
+    // Log headers for debugging (only API key prefix)
+    console.log('Using headers:', {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey.substring(0, 10)}...`, // Only show prefix for security
+      'HTTP-Referer': 'https://careerai.app',
+    });
     
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cleanedApiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
         'HTTP-Referer': 'https://careerai.app',
-        'X-Title': 'CareerAI Resume Parser',
       },
       body: JSON.stringify({
         model: AI_CONFIG.openRouter.model,
