@@ -3,13 +3,13 @@ export const AI_CONFIG = {
   // OpenRouter configuration for Qwen model
   openRouter: {
     apiKey: process.env.OPENROUTER_API_KEY || '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',
-    model: 'qwen/qwen3-30b-a3b:free'
+    model: 'qwen/qwen3-235b-a22b:free' // Updated to the correct free model name
   },
   
   // Gemini configuration (fallback)
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || 'AIzaSyA1UcUNKz2v9mBzKfLay3A3TydQZiziMZ8',
-    model: 'gemini-2.5-pro-exp'
+    model: 'gemini-1.5-pro' // Updated to available model
   }
 };
 
@@ -18,11 +18,14 @@ export async function queryOpenRouter(prompt: string, systemPrompt?: string) {
   try {
     console.log(`Calling OpenRouter API with key: ${AI_CONFIG.openRouter.apiKey.substring(0, 10)}...`);
     
+    // Ensure the API key doesn't have any spaces or formatting issues
+    const cleanedApiKey = AI_CONFIG.openRouter.apiKey.trim();
+    
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${AI_CONFIG.openRouter.apiKey}`,
+        'Authorization': `Bearer ${cleanedApiKey}`,
         'HTTP-Referer': 'https://careerai.app',
         'X-Title': 'CareerAI Resume Parser',
       },
@@ -31,7 +34,9 @@ export async function queryOpenRouter(prompt: string, systemPrompt?: string) {
         messages: [
           ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
           { role: 'user', content: prompt }
-        ]
+        ],
+        max_tokens: 4000,
+        temperature: 0.2
       })
     });
 
@@ -56,7 +61,7 @@ export async function queryGemini(prompt: string, systemPrompt?: string) {
   try {
     console.log(`Calling Gemini API with key: ${AI_CONFIG.gemini.apiKey.substring(0, 10)}...`);
     
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-exp:generateContent', {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${AI_CONFIG.gemini.model}:generateContent`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
