@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
 import { initializeStorageBuckets } from '@/lib/supabase/storage';
 import { supabaseAdmin } from '@/lib/supabase/client';
 
@@ -7,6 +9,15 @@ import { supabaseAdmin } from '@/lib/supabase/client';
  * This includes creating storage buckets and schema
  */
 export async function GET() {
+  // Get current user session from cookies
+  const supabase = createRouteHandlerClient({ cookies });
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  // For initialization, we'll allow the operation without a session
+  // but log that it's happening anonymously for security monitoring
+  if (!session?.user) {
+    console.warn('Anonymous attempt to initialize resources');
+  }
   try {
     // Initialize storage buckets
     const { success, error } = await initializeStorageBuckets();

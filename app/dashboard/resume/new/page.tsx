@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader, Upload, Check, X } from "lucide-react";
-import { parseResumeText, extractStructuredResumeData } from "@/lib/documents/document-parser";
+import { checkStorageBuckets } from "@/lib/supabase/storage";
 
 export default function UploadResumePage() {
   const [file, setFile] = useState<File | null>(null);
@@ -23,25 +23,41 @@ export default function UploadResumePage() {
   useEffect(() => {
     const checkBuckets = async () => {
       try {
-        // Check if the user_files bucket exists
-        const { data, error } = await supabase.storage.getBucket('user_files');
+        // Use the new checkStorageBuckets function
+        const { initialized: bucketsInitialized, missingBuckets, error: bucketError } = await checkStorageBuckets();
         
-        if (error) {
-          console.error("Storage bucket error:", error);
+        if (!bucketsInitialized || bucketError) {
+          console.error("Storage bucket error:", bucketError || `Missing buckets: ${missingBuckets.join(', ')}`);
+          
           // Try to initialize via the init API
           const initResponse = await fetch('/api/init');
           const initData = await initResponse.json();
           
           if (!initData.success) {
-            setError("Storage system not properly initialized. Please try again later.");
+            setError("Storage system not properly initialized. File uploads may not work correctly.");
+            // We'll still set bucketInitialized to true so the app can continue,
+            // but the error message will inform the user of potential issues
+            setBucketInitialized(true);
             return;
           }
+          
+          // Check again after initialization attempt
+          const { initialized: recheck } = await checkStorageBuckets();
+          setBucketInitialized(recheck);
+          
+          if (!recheck) {
+            setError("Storage buckets could not be properly initialized. Some features may not work correctly.");
+          }
+        } else {
+          // All buckets exist and are properly initialized
+          setBucketInitialized(true);
+          setError(null);
         }
-        
-        setBucketInitialized(true);
       } catch (err) {
         console.error("Error checking storage buckets:", err);
         setError("Failed to initialize storage. Please refresh the page.");
+        // Even with the error, we'll allow the component to render
+        setBucketInitialized(true);
       }
     };
     
@@ -98,55 +114,44 @@ export default function UploadResumePage() {
       
       console.log(`Uploading file to user_files/${filePath}`);
       
-      // Upload file to Supabase Storage
-      const { data: fileData, error: uploadError } = await supabase.storage
-        .from('user_files')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
-        
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
-        throw uploadError;
-      }
+      // Use the all-in-one endpoint that handles upload, parsing, and database saving
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('userId', userData.user.id);
       
-      console.log("File uploaded successfully:", fileData);
-      
-      // Start resume parsing and analysis
       setUploading(false);
       setAnalyzing(true);
       
       try {
-        // Convert file to buffer for parsing
-        const buffer = await file.arrayBuffer();
+        // All-in-one endpoint that handles upload, parsing, and database insertion
+        const response = await fetch('/api/resumeupload', {
+          method: 'POST',
+          body: formData
+        });
         
-        // Parse the resume text (this would be a server function in production)
-        // For demo, we'll simulate successful parsing
-        const resumeText = "Simulated resume text"; // Would be actual parseResumeText result
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error("Resume processing error:", errorData);
+          throw new Error(errorData.error || "Failed to process resume");
+        }
         
-        // Extract structured data
-        // const structuredData = await extractStructuredResumeData(resumeText);
-        const structuredData = { 
-          contactInfo: { 
-            fullName: "John Doe",
-            email: "john@example.com" 
-          },
-          skills: ["JavaScript", "React", "TypeScript"]
-        };
+        const processedData = await response.json();
         
-        // Create record in resumes table
-        const { error: dbError } = await supabase
-          .from('resumes')
-          .insert({
-            user_id: userData.user.id,
-            file_name: file.name,
-            file_type: file.type,
-            file_path: filePath,
-            parsed_data: structuredData
-          });
-          
-        if (dbError) throw dbError;
+        if (!processedData.success) {
+          throw new Error(processedData.error || "Resume processing failed");
+        }
+        
+        // Log any partial successes/failures
+        if (processedData.error) {
+          console.warn("Partial success:", processedData.error);
+        }
+        
+        console.log("Resume processed successfully:", {
+          uploadSuccess: processedData.uploadSuccess,
+          parseSuccess: processedData.parseSuccess,
+          aiSuccess: processedData.aiSuccess,
+          dbSuccess: processedData.dbSuccess
+        });
         
         // Success!
         toast({
@@ -155,19 +160,16 @@ export default function UploadResumePage() {
         });
         
         router.push("/dashboard/resume");
-      } catch (analysisError: any) {
-        console.error("Analysis error:", analysisError);
+      } catch (processingError: any) {
+        console.error("Resume processing error:", processingError);
         
-        // Even if analysis fails, we still created the resume record
-        // Just without the parsed_data
-        
+        // The all-in-one endpoint might have partially succeeded
+        // So let's show a message that explains the state
         toast({
-          title: "Resume Uploaded",
-          description: "Your resume was uploaded, but there was an issue with analysis. You can still use it.",
-          variant: "default",
+          title: "Resume Upload Issue",
+          description: processingError.message || "There was an issue processing your resume. Please try again.",
+          variant: "destructive",
         });
-        
-        router.push("/dashboard/resume");
       }
     } catch (error: any) {
       console.error("Resume upload error:", error);

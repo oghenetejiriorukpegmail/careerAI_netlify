@@ -40,15 +40,45 @@ export async function queryOpenRouter(prompt: string, systemPrompt?: string) {
 }
 
 // Function to make a request to Gemini (fallback)
-export async function queryGemini(prompt: string) {
+export async function queryGemini(prompt: string, systemPrompt?: string) {
   try {
-    // Implement Gemini API call here
-    // This is placeholder as the actual implementation would depend on the Gemini JS SDK
-    console.log('Falling back to Gemini with prompt:', prompt);
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-exp:generateContent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': AI_CONFIG.gemini.apiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          topP: 0.8,
+          topK: 40,
+          maxOutputTokens: 8192,
+        }
+      })
+    });
+
+    const data = await response.json();
     
-    // Return placeholder response
+    // Transform Gemini response to match OpenRouter format
     return {
-      error: 'Gemini implementation pending',
+      choices: [
+        {
+          message: {
+            content: data.candidates[0].content.parts[0].text,
+            role: 'assistant'
+          },
+          index: 0
+        }
+      ]
     };
   } catch (error) {
     console.error('Error calling Gemini:', error);
@@ -62,6 +92,6 @@ export async function queryAI(prompt: string, systemPrompt?: string) {
     return await queryOpenRouter(prompt, systemPrompt);
   } catch (error) {
     console.error('OpenRouter failed, falling back to Gemini');
-    return await queryGemini(prompt);
+    return await queryGemini(prompt, systemPrompt);
   }
 }

@@ -43,30 +43,17 @@ export async function initializeStorageBuckets() {
       console.log('Created generated documents bucket');
     }
     
-    // Set up bucket policies
-    await setupBucketPolicies();
+    // Note: Storage bucket policies need to be set up separately using SQL
+    // See /supabase/storage-policies.sql for the required policies
+    // The JavaScript client doesn't support policy creation directly
+    // 
+    // For immediate functionality, use the /api/upload endpoint which uses
+    // the admin client to bypass RLS policies
     
     return { success: true };
   } catch (error) {
     console.error('Error initializing storage buckets:', error);
     return { success: false, error };
-  }
-}
-
-/**
- * Sets up the correct storage policies for the buckets
- */
-async function setupBucketPolicies() {
-  // For each bucket, set up RLS policies that allow users to access only their own files
-  const buckets = ['resumes', 'user_files', 'generated'];
-  
-  for (const bucket of buckets) {
-    await supabaseAdmin.storage.from(bucket).createPolicy('User can access own files', {
-      name: `User can access own files in ${bucket}`,
-      definition: (storage, { auth }) => {
-        return auth.uid() === storage.owner();
-      }
-    });
   }
 }
 
@@ -126,5 +113,54 @@ export async function deleteFile(bucket: string, path: string) {
   } catch (error) {
     console.error(`Error deleting file from ${bucket}/${path}:`, error);
     throw error;
+  }
+}
+
+/**
+ * Get a list of files in a bucket
+ * @param bucket The storage bucket name
+ * @param path Optional path prefix to filter results
+ * @returns List of files in the bucket
+ */
+export async function listFiles(bucket: string, path?: string) {
+  try {
+    const { data, error } = await supabaseAdmin.storage.from(bucket).list(path || '');
+    
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error(`Error listing files in ${bucket}${path ? '/' + path : ''}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Check if storage buckets exist and are properly initialized
+ * @returns Status of storage buckets
+ */
+export async function checkStorageBuckets() {
+  try {
+    const { data: buckets, error } = await supabaseAdmin.storage.listBuckets();
+    
+    if (error) throw error;
+    
+    const requiredBuckets = ['resumes', 'user_files', 'generated'];
+    const existingBuckets = buckets.map(b => b.name);
+    const missingBuckets = requiredBuckets.filter(b => !existingBuckets.includes(b));
+    
+    return {
+      initialized: missingBuckets.length === 0,
+      existingBuckets,
+      missingBuckets,
+      error: null
+    };
+  } catch (error) {
+    console.error('Error checking storage buckets:', error);
+    return {
+      initialized: false,
+      existingBuckets: [],
+      missingBuckets: ['resumes', 'user_files', 'generated'],
+      error
+    };
   }
 }

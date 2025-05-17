@@ -58,7 +58,9 @@ BRIGHT_DATA_PASSWORD=your_bright_data_password
 
 4. Set up the database schema by running the SQL in `lib/supabase/schema.sql` in your Supabase SQL editor.
 
-5. Run the development server
+5. Set up storage bucket policies by running the SQL in `supabase/storage-policies.sql` in your Supabase SQL editor.
+
+6. Run the development server
 ```bash
 npm run dev
 ```
@@ -114,6 +116,27 @@ careerai/
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Troubleshooting
+
+### Storage Upload Errors
+
+If you encounter "Unauthorized" or "row-level security policy" errors when uploading files:
+
+1. Check that you've set up the RLS policies by running the SQL in `supabase/storage-policies.sql`
+2. Make sure you're using the `/api/upload` endpoint rather than direct Supabase client uploads
+3. Ensure file paths include the user ID as the first folder segment (e.g., `{user_id}/filename.pdf`)
+
+The application implements two approaches to handle file uploads:
+- **API-based Upload**: Uses the service role key to bypass RLS policies (`/api/upload` endpoint)
+- **Direct Upload**: Requires proper RLS policies to be set up in Supabase
+
+### PDF Parsing Errors
+
+If you encounter errors related to PDF parsing in the browser:
+
+1. The PDF parsing is performed server-side via the `/api/documents/parse` endpoint
+2. Make sure you're using the API endpoint rather than trying to parse PDFs directly in the browser
 
 ## Acknowledgments
 

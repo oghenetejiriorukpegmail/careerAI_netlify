@@ -1,6 +1,3 @@
-import { Buffer } from 'buffer';
-import * as pdf from 'pdf-parse';
-import mammoth from 'mammoth';
 import { queryAI } from '../ai/config';
 
 // Types for structured data
@@ -45,51 +42,9 @@ export interface ParsedJobDescription {
   company_culture?: string[];
 }
 
-/**
- * Parse a PDF resume file
- * @param buffer PDF file buffer
- * @returns Extracted text content
- */
-async function parsePdfResume(buffer: Buffer): Promise<string> {
-  try {
-    const data = await pdf(buffer);
-    return data.text;
-  } catch (error) {
-    console.error('Error parsing PDF:', error);
-    throw new Error('Failed to parse PDF resume');
-  }
-}
-
-/**
- * Parse a DOCX resume file
- * @param buffer DOCX file buffer
- * @returns Extracted text content
- */
-async function parseDocxResume(buffer: Buffer): Promise<string> {
-  try {
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value;
-  } catch (error) {
-    console.error('Error parsing DOCX:', error);
-    throw new Error('Failed to parse DOCX resume');
-  }
-}
-
-/**
- * Parse resume based on file type
- * @param buffer File buffer
- * @param fileType MIME type of the file
- * @returns Parsed resume text
- */
-export async function parseResumeText(buffer: Buffer, fileType: string): Promise<string> {
-  if (fileType === 'application/pdf') {
-    return parsePdfResume(buffer);
-  } else if (fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-    return parseDocxResume(buffer);
-  } else {
-    throw new Error('Unsupported file type. Please upload a PDF or DOCX file.');
-  }
-}
+// Note: Document parsing functions have been moved to the API route
+// to avoid Node.js module import issues in the browser
+// See /app/api/documents/parse/route.ts for implementation
 
 /**
  * Extract structured data from resume text using AI
