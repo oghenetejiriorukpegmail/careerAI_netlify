@@ -66,16 +66,43 @@ export async function POST(request: NextRequest) {
     try {
       console.log(`Parsing document with type: ${fileType}`);
       
-      // Use our unified document text extractor
-      documentText = await extractDocumentText(buffer, fileType, mammoth);
-      
-      console.log(`Document parsing successful, extracted ${documentText.length} characters`);
-      
-      if (!documentText || documentText.trim().length < 50) {
-        console.warn('Document parsing returned very little text, content may be incomplete');
+      try {
+        // Use our unified document text extractor
+        documentText = await extractDocumentText(buffer, fileType, mammoth);
+        
+        console.log(`Document parsing successful, extracted ${documentText.length} characters`);
+        
+        if (!documentText || documentText.trim().length < 50) {
+          console.warn('Document parsing returned very little text, content may be incomplete');
+          // If we got very little text, fall back to simple file metadata as supplemental info
+          documentText += `\n\nFile information: ${fileName}, uploaded by user ${userId}, file type: ${fileType}.`;
+        }
+      } catch (pdfError) {
+        console.error('Error extracting text from PDF, falling back to simplified parser');
+        
+        if (fileType === 'application/pdf') {
+          // For PDFs, try fallback to basic text extraction if possible
+          try {
+            if (typeof buffer.toString === 'function') {
+              // Extract any visible text strings from the buffer - will be imperfect but better than nothing
+              documentText = buffer.toString('utf8', 0, Math.min(buffer.length, 32000))
+                .replace(/[\x00-\x09\x0B-\x1F\x7F-\xFF]/g, '') // Remove non-printable ASCII chars
+                .replace(/\s+/g, ' '); // Normalize whitespace
+              
+              console.log('Used fallback string extraction, got', documentText.length, 'characters');
+            }
+          } catch (fallbackError) {
+            console.error('Fallback extraction also failed:', fallbackError);
+          }
+        }
+        
+        // If we still have no usable text, use basic metadata
+        if (!documentText || documentText.trim().length < 10) {
+          documentText = `Resume: ${fileName}. Content could not be extracted. File type: ${fileType}.`;
+        }
       }
     } catch (parseError: any) {
-      console.error('Error parsing document:', parseError);
+      console.error('Error in document parsing flow:', parseError);
       
       // Create a minimal placeholder text to allow the process to continue
       documentText = `Resume: ${fileName}. Content could not be extracted. File type: ${fileType}.`;

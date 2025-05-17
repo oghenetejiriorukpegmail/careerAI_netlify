@@ -27,9 +27,12 @@ export async function parsePdf(buffer: Buffer): Promise<string> {
   try {
     console.log(`Parsing PDF with PDF.js, buffer size: ${buffer.length}`);
     
+    // Convert Buffer to Uint8Array for PDF.js compatibility
+    const uint8Array = new Uint8Array(buffer);
+    
     // Load the PDF document
     const loadingTask = pdfjsLib.getDocument({
-      data: buffer,
+      data: uint8Array,
       // Disable workers to run in the main thread (more reliable for serverless environments)
       disableWorker: true,
       // Don't attempt to recover from errors in corrupt files
@@ -84,10 +87,40 @@ export async function extractDocumentText(
 ): Promise<string> {
   try {
     if (mimeType === 'application/pdf') {
-      return await parsePdf(buffer);
+      // Handle PDF parsing using PDF.js
+      try {
+        console.log('Attempting to parse PDF with PDF.js...');
+        return await parsePdf(buffer);
+      } catch (pdfError) {
+        console.error('Primary PDF parser failed:', pdfError);
+        
+        // Advanced error handling - attempt alternate extraction if possible
+        if (buffer && buffer.length > 0) {
+          // Attempt a crude backup extraction - just pull strings from the binary data
+          // This is not ideal but better than nothing for simple text-based PDFs
+          const extracted = buffer.toString('utf8', 0, Math.min(buffer.length, 32000))
+            .replace(/[\x00-\x09\x0B-\x1F\x7F-\xFF]/g, '') // Remove non-printable chars
+            .replace(/\s+/g, ' '); // Normalize whitespace
+            
+          if (extracted && extracted.length > 50) {
+            console.log('Used fallback string extraction for PDF');
+            return extracted;
+          }
+        }
+        
+        // If we reach here, both parsers failed - rethrow the original error
+        throw pdfError;
+      }
     } else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      const result = await mammoth.extractRawText({ buffer });
-      return result.value;
+      // Handle DOCX parsing with mammoth
+      try {
+        console.log('Parsing DOCX with mammoth...');
+        const result = await mammoth.extractRawText({ buffer });
+        return result.value;
+      } catch (docxError) {
+        console.error('DOCX parsing failed:', docxError);
+        throw docxError;
+      }
     } else {
       throw new Error(`Unsupported document type: ${mimeType}`);
     }
