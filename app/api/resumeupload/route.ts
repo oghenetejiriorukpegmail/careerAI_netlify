@@ -119,11 +119,89 @@ export async function POST(request: NextRequest) {
 
     // 3. Extract structured data using AI
     let structuredData;
+    let aiSuccess = false;
+    
     try {
-      structuredData = await extractStructuredResumeData(documentText);
+      // Check if we have enough meaningful text to analyze
+      if (documentText.length < 50) {
+        console.warn('Document text too short for AI analysis, creating fallback structure');
+        // Create minimal structured data with filename as the only known data
+        structuredData = {
+          contactInfo: {},
+          skills: [],
+          education: [],
+          experience: [],
+          summary: `This resume (${fileName}) could not be fully parsed. Please re-upload in a different format.`
+        };
+      } else {
+        console.log('Sending document to AI for analysis, text length:', documentText.length);
+        
+        try {
+          structuredData = await extractStructuredResumeData(documentText);
+          aiSuccess = true;
+          console.log('AI analysis completed successfully');
+        } catch (extractionError) {
+          console.error('AI extraction failed, using basic extraction approach:', extractionError);
+          
+          // Create a more basic structure from the text
+          // This attempts to extract essential info without AI
+          
+          // Extract potential name (usually at the top of a resume)
+          const nameMatch = documentText.match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)/);
+          const name = nameMatch ? nameMatch[1] : '';
+          
+          // Extract potential email using regex
+          const emailMatch = documentText.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/i);
+          const email = emailMatch ? emailMatch[1] : '';
+          
+          // Extract potential phone number
+          const phoneMatch = documentText.match(/(\+?1?\s*\(?[0-9]{3}\)?[-. ][0-9]{3}[-. ][0-9]{4})/);
+          const phone = phoneMatch ? phoneMatch[1] : '';
+          
+          // Extract potential skills (common technical terms and skill keywords)
+          const skillKeywords = [
+            'JavaScript', 'Python', 'Java', 'C++', 'Ruby', 'PHP', 'HTML', 'CSS', 'SQL',
+            'React', 'Angular', 'Vue', 'Node.js', 'Express', 'Django', 'Flask',
+            'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'CI/CD', 'Git',
+            'Leadership', 'Project Management', 'Agile', 'Scrum', 'Communication',
+            'Microsoft Office', 'Excel', 'Word', 'PowerPoint', 'Outlook',
+            'Analytics', 'Data Analysis', 'Marketing', 'Sales', 'Customer Service',
+            'Network', 'Cisco', 'CCNA', 'CCNP', 'Routing', 'Switching', 'Firewall',
+            'Security', 'VPN', 'LAN', 'WAN', 'Wireless', 'TCP/IP'
+          ];
+          
+          const skills = skillKeywords
+            .filter(skill => documentText.includes(skill))
+            .slice(0, 15); // Limit to 15 skills
+          
+          structuredData = {
+            contactInfo: {
+              fullName: name,
+              email: email,
+              phone: phone,
+            },
+            skills: skills,
+            education: [],
+            experience: [],
+            summary: `Basic information extracted from resume. Filename: ${fileName}`
+          };
+          
+          console.log('Created basic structured data with simple parsing');
+        }
+      }
     } catch (aiError: any) {
-      console.error('Error extracting data with AI:', aiError);
-      // Continue anyway, we have the text
+      console.error('Error in AI extraction process:', aiError);
+      
+      // Create basic structure even when AI fails completely
+      structuredData = {
+        contactInfo: {},
+        skills: [],
+        education: [],
+        experience: [],
+        summary: `Resume processed with limited parsing. Original filename: ${fileName}`
+      };
+      
+      // Continue with the basic structure
       return NextResponse.json({
         success: true,
         uploadSuccess: true,
@@ -131,7 +209,8 @@ export async function POST(request: NextRequest) {
         aiSuccess: false,
         data: uploadData,
         text: documentText,
-        error: `File uploaded and parsed, but AI extraction failed: ${aiError.message}`
+        structuredData,
+        error: `File uploaded and parsed, but AI extraction failed: ${aiError.message || 'Unknown AI processing error'}`
       });
     }
 

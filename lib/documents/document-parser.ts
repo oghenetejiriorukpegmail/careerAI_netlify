@@ -103,11 +103,35 @@ export async function extractStructuredResumeData(resumeText: string): Promise<P
     // Call the AI service
     const response = await queryAI(prompt, systemPrompt);
     
-    // Parse the response to get the structured data
-    // This assumes the AI returns a JSON object in the response
-    const structuredData: ParsedResume = JSON.parse(response.choices[0].message.content);
+    // Validate the response before processing
+    if (!response || !response.choices || !response.choices.length || 
+        !response.choices[0] || !response.choices[0].message || 
+        !response.choices[0].message.content) {
+      console.error('Invalid AI response format:', response);
+      throw new Error('AI returned an invalid response format');
+    }
     
-    return structuredData;
+    // Parse the response to get the structured data
+    try {
+      const structuredData: ParsedResume = JSON.parse(response.choices[0].message.content);
+      
+      // Basic validation to ensure we have at least a minimal structure
+      if (!structuredData) {
+        throw new Error('Parsed data is empty');
+      }
+      
+      // Ensure we have at least the basic structure expected even if empty
+      structuredData.contactInfo = structuredData.contactInfo || {};
+      structuredData.experience = structuredData.experience || [];
+      structuredData.education = structuredData.education || [];
+      structuredData.skills = structuredData.skills || [];
+      
+      return structuredData;
+    } catch (parseError) {
+      console.error('Error parsing AI response as JSON:', parseError);
+      console.log('Raw AI response:', response.choices[0].message.content);
+      throw new Error('Failed to parse AI response as valid JSON');
+    }
   } catch (error) {
     console.error('Error extracting structured data from resume:', error);
     throw new Error('Failed to extract structured data from resume');

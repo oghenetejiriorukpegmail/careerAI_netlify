@@ -6,15 +6,20 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { TextItem } from 'pdfjs-dist/types/src/display/api';
 
-// Configure PDF.js without external workers for serverless environments
-const PDFJS_DISABLE_WORKERS = true;
+// Configure PDF.js to work properly in a Node.js environment
+// The key issue is that PDF.js needs a worker but works differently in Node vs browser
 
-// Force disable workers in serverless environment
-if (typeof window === 'undefined' || PDFJS_DISABLE_WORKERS) {
-  // In Node.js environment, disable workers entirely for better compatibility
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+// For Node.js environment in Next.js, we need to explicitly set up a fake worker
+if (typeof window === 'undefined') {
+  // We're in a Node.js/server environment - use the fake worker approach
+  // PDFjs needs this even with disableWorker:true
+  const pdfjsWorker = require('pdfjs-dist/build/pdf.worker.js');
+  
+  if (pdfjsLib.GlobalWorkerOptions) {
+    pdfjsLib.GlobalWorkerOptions.workerPort = new pdfjsWorker.PDFWorker('pdf.worker').port;
+  }
 } else {
-  // In browser environments, can use CDN workers (but we'll still prefer no workers for consistency)
+  // Browser environment - can use CDN worker
   pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 }
 
