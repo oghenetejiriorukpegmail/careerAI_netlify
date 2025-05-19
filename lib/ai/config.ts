@@ -3,7 +3,7 @@ export const AI_CONFIG = {
   // Requesty Router configuration
   requesty: {
     apiKey: process.env.ROUTER_API_KEY || 'sk-+mZ784BeQxS6EXfmzWchAIB9fmvIV6NGkwF9VNfsuONF/NtjFuGheUXQK+YU2D/npXfNCKYcqVyObin/PJJhkeZdvGVMDDWFZ/Yzi3/NsAM=',
-    model: 'google/gemini-2.5-pro-preview-05-06',
+    model: 'gemini-1.5-pro-latest',
     baseUrl: 'https://router.requesty.ai/v1'
   },
   // OpenAI configuration (keeping for backwards compatibility)
@@ -14,7 +14,7 @@ export const AI_CONFIG = {
   // Keep Gemini reference for backward compatibility
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || 'AIzaSyAnYDT0bXchBFv7POL72UaDpsIJFOAu9Ic',
-    model: 'gemini-2.5-pro-preview-05-06'
+    model: 'gemini-1.5-pro-latest'
   }
 };
 
@@ -114,8 +114,8 @@ export async function queryGemini(prompt: string, systemPrompt?: string) {
           maxOutputTokens: 8192,
         }
       }),
-      // Add timeout to prevent hanging requests
-      signal: AbortSignal.timeout(45000) // 45 second timeout for larger model
+      // Add timeout to prevent hanging requests with large documents
+      signal: AbortSignal.timeout(120000) // 120 second timeout for large documents
     });
 
     // Check for HTTP errors
@@ -161,7 +161,7 @@ export async function queryGemini(prompt: string, systemPrompt?: string) {
                 maxOutputTokens: 8192,
               }
             }),
-            signal: AbortSignal.timeout(30000)
+            signal: AbortSignal.timeout(120000) // Increased timeout for large documents
           });
           
           if (retryResponse.ok) {
@@ -298,8 +298,8 @@ export async function queryOpenAI(prompt: string, systemPrompt?: string) {
         temperature: 0.2,
         max_tokens: 8192
       }),
-      // Add timeout to prevent hanging requests
-      signal: AbortSignal.timeout(45000) // 45 second timeout
+      // Add timeout to prevent hanging requests with large documents
+      signal: AbortSignal.timeout(120000) // 120 second timeout for large documents
     });
     
     // Check for HTTP errors
@@ -377,8 +377,8 @@ export async function queryRequesty(prompt: string, systemPrompt?: string) {
         temperature: 0.2,
         max_tokens: 8192
       }),
-      // Add timeout to prevent hanging requests
-      signal: AbortSignal.timeout(45000) // 45 second timeout
+      // Add timeout to prevent hanging requests with large documents
+      signal: AbortSignal.timeout(120000) // 120 second timeout for large documents
     });
     
     // Check for HTTP errors
