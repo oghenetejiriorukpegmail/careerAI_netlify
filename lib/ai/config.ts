@@ -3,7 +3,7 @@ export const AI_CONFIG = {
   // Requesty Router configuration
   requesty: {
     apiKey: process.env.ROUTER_API_KEY || 'sk-+mZ784BeQxS6EXfmzWchAIB9fmvIV6NGkwF9VNfsuONF/NtjFuGheUXQK+YU2D/npXfNCKYcqVyObin/PJJhkeZdvGVMDDWFZ/Yzi3/NsAM=',
-    model: 'vertex/anthropic/claude-3-7-sonnet-20250219@us-east5',
+    model: 'anthropic/claude-3-7-sonnet-20250219',
     baseUrl: 'https://router.requesty.ai/v1'
   },
   // OpenAI configuration (keeping for backwards compatibility)
@@ -682,7 +682,7 @@ export async function queryRequesty(prompt: string, systemPrompt?: string) {
       }),
       // Add timeout to prevent hanging requests with large documents
       // Increased timeout for Vertex AI models that may take longer
-      signal: AbortSignal.timeout(300000) // 300 second (5 minute) timeout for Vertex AI models
+      signal: AbortSignal.timeout(120000) // 120 second (2 minute) timeout
     });
     
     // Check for HTTP errors
@@ -958,7 +958,7 @@ async function loadUserSettings() {
       // Server side - always use Claude 3.7 Sonnet via Requesty
       return {
         aiProvider: 'requesty',
-        aiModel: 'vertex/anthropic/claude-3-7-sonnet-20250219@us-east5',
+        aiModel: 'anthropic/claude-3-7-sonnet-20250219',
         documentAiOnly: true,
         enableLogging: true
       };
@@ -982,7 +982,7 @@ export async function queryAI(prompt: string, systemPrompt?: string) {
   
   // Handle provider and model from settings - always default to Claude 3.7 Sonnet
   const provider = settings.aiProvider || 'requesty';
-  const model = settings.aiModel || 'vertex/anthropic/claude-3-7-sonnet-20250219@us-east5';
+  const model = settings.aiModel || 'anthropic/claude-3-7-sonnet-20250219';
   
   console.log(`Using AI provider from settings: ${provider}`);
   console.log(`Using AI model from settings: ${model}`);
