@@ -3,7 +3,7 @@ export const AI_CONFIG = {
   // Requesty Router configuration
   requesty: {
     apiKey: process.env.ROUTER_API_KEY || 'sk-+mZ784BeQxS6EXfmzWchAIB9fmvIV6NGkwF9VNfsuONF/NtjFuGheUXQK+YU2D/npXfNCKYcqVyObin/PJJhkeZdvGVMDDWFZ/Yzi3/NsAM=',
-    model: 'gemini-1.5-pro-latest',
+    model: 'google/gemini-2.5-pro-preview-05-06',
     baseUrl: 'https://router.requesty.ai/v1'
   },
   // OpenAI configuration (keeping for backwards compatibility)
@@ -14,7 +14,7 @@ export const AI_CONFIG = {
   // Keep Gemini reference for backward compatibility
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || 'AIzaSyAnYDT0bXchBFv7POL72UaDpsIJFOAu9Ic',
-    model: 'gemini-1.5-pro-latest'
+    model: 'gemini-2.5-pro-preview-05-06'
   }
 };
 
