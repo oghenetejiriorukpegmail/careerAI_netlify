@@ -175,10 +175,10 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
       Resume text:
       ${sectionText}
       
-      ## CRITICAL FORMATTING INSTRUCTIONS - READ CAREFULLY:
+      CRITICAL FORMATTING INSTRUCTIONS:
       1. Return ONLY a raw, valid JSON object with NO explanations before or after
-      2. DO NOT use triple backticks (```) or any markdown formatting
-      3. DO NOT use the text "```json" anywhere in your response
+      2. DO NOT use any markdown code formatting
+      3. DO NOT use the text "json" anywhere in your response
       4. DO NOT wrap your response in code blocks
       5. DO NOT include any special markers
       6. Only provide the bare JSON object starting with { and ending with }
@@ -187,11 +187,11 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
       
       Your entire response must be a valid JSON object that can be directly processed by JSON.parse().
       
-      AGAIN: NEVER USE ```json or ``` MARKERS ANYWHERE IN YOUR RESPONSE.
+      AGAIN: NEVER USE MARKDOWN CODE FORMATTING ANYWHERE IN YOUR RESPONSE.
       YOUR RESPONSE MUST START WITH { AND END WITH } WITH NO OTHER TEXT BEFORE OR AFTER.
     `;
     
-    const systemPrompt = "You are an expert resume parser API that returns pure JSON data with no formatting. CRITICAL: Your entire response must be a valid JSON object starting with { and ending with }, containing no markdown formatting, no ```json tags, no backticks, and no other text. Your response must be directly parseable by JSON.parse() with no preprocessing. Never wrap JSON in code blocks.";
+    const systemPrompt = "You are an expert resume parser API that returns pure JSON data with no formatting. CRITICAL: Your entire response must be a valid JSON object starting with { and ending with }, containing no markdown formatting, no code blocks, and no other text. Your response must be directly parseable by JSON.parse() with no preprocessing.";
     
     // Call the AI service
     const response = await queryAI(prompt, systemPrompt);
