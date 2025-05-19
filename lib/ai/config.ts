@@ -3,7 +3,7 @@ export const AI_CONFIG = {
   // Requesty Router configuration
   requesty: {
     apiKey: process.env.ROUTER_API_KEY || 'sk-+mZ784BeQxS6EXfmzWchAIB9fmvIV6NGkwF9VNfsuONF/NtjFuGheUXQK+YU2D/npXfNCKYcqVyObin/PJJhkeZdvGVMDDWFZ/Yzi3/NsAM=',
-    model: 'google/gemini-2.5-pro-preview-05-06',
+    model: 'openai/gpt-4.1-nano-2025-04-14',
     baseUrl: 'https://router.requesty.ai/v1'
   },
   // OpenAI configuration (keeping for backwards compatibility)
