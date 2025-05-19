@@ -3,7 +3,7 @@ export const AI_CONFIG = {
   // Requesty Router configuration
   requesty: {
     apiKey: process.env.ROUTER_API_KEY || 'sk-+mZ784BeQxS6EXfmzWchAIB9fmvIV6NGkwF9VNfsuONF/NtjFuGheUXQK+YU2D/npXfNCKYcqVyObin/PJJhkeZdvGVMDDWFZ/Yzi3/NsAM=',
-    model: 'openai/gpt-4.1-nano-2025-04-14',
+    model: 'vertex/anthropic/claude-3-7-sonnet-20250219@us-east5',
     baseUrl: 'https://router.requesty.ai/v1'
   },
   // OpenAI configuration (keeping for backwards compatibility)
@@ -14,7 +14,14 @@ export const AI_CONFIG = {
   // Keep Gemini reference for backward compatibility
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || 'AIzaSyAnYDT0bXchBFv7POL72UaDpsIJFOAu9Ic',
-    model: 'gemini-2.5-pro-preview-05-06'
+    model: 'gemini-pro'
+  },
+  // Vertex AI configuration
+  vertex: {
+    apiKey: process.env.VERTEX_API_KEY || process.env.GOOGLE_API_KEY || 'AIzaSyA1UcUNKz2v9mBzKfLay3A3TydQZiziMZ8',
+    model: 'vertex/anthropic/claude-3-7-sonnet-latest@us-east5',
+    projectId: process.env.GOOGLE_PROJECT_ID || '498473173877',
+    location: 'us-east5'
   }
 };
 
@@ -175,12 +182,37 @@ export async function queryGemini(prompt: string, systemPrompt?: string) {
             }
             
             // Log the raw Gemini retry response for debugging
-            const retryContent = data.candidates[0].content.parts[0].text;
+            let retryContent = data.candidates[0].content.parts[0].text;
             console.log(`[RAW GEMINI RETRY RESPONSE] First 500 chars: ${retryContent.substring(0, 500)}...`);
             
             // Check if response contains markdown code blocks
             if (retryContent.includes('```')) {
-              console.warn('[GEMINI RETRY RESPONSE WARNING] Response contains markdown code blocks that may cause JSON parsing issues');
+              console.warn('[GEMINI RETRY RESPONSE WARNING] Response contains markdown code blocks - cleaning up');
+              
+              // If content starts with code block, remove the opening marker
+              if (retryContent.startsWith('```')) {
+                // Check for language specifier like ```json
+                const afterMarker = retryContent.substring(3);
+                const languageMatch = afterMarker.match(/^[a-z]+\s/);
+                const contentStartPos = languageMatch ? 3 + languageMatch[0].length : 3;
+                
+                // Get content after the opening marker
+                retryContent = retryContent.substring(contentStartPos);
+                console.log('[GEMINI RETRY] Removed opening code block marker');
+              }
+              
+              // Remove closing code block marker if present
+              if (retryContent.endsWith('```')) {
+                retryContent = retryContent.substring(0, retryContent.length - 3).trim();
+                console.log('[GEMINI RETRY] Removed closing code block marker');
+              }
+              
+              // Remove any remaining code block markers
+              retryContent = retryContent.replace(/```/g, '');
+              
+              // Update the content 
+              data.candidates[0].content.parts[0].text = retryContent;
+              console.log('[GEMINI RETRY] Cleaned response of code block markers');
             }
             
             // Transform Gemini response to match OpenRouter format
@@ -219,13 +251,204 @@ export async function queryGemini(prompt: string, systemPrompt?: string) {
     }
     
     // Log the raw Gemini response for debugging
-    const rawContent = data.candidates[0].content.parts[0].text;
+    let rawContent = data.candidates[0].content.parts[0].text;
     console.log(`[RAW GEMINI RESPONSE] First 500 chars: ${rawContent.substring(0, 500)}...`);
     
-    // Check if response contains markdown code blocks
-    if (rawContent.includes('```')) {
-      console.warn('[GEMINI RESPONSE WARNING] Response contains markdown code blocks that may cause JSON parsing issues');
+    // Write complete response to log file
+    if (typeof process !== 'undefined') {
+      try {
+        // Dynamic import for ESM compatibility
+        import('fs').then(fs => {
+          // Create logs directory if it doesn't exist
+          if (!fs.existsSync('./logs')) {
+            fs.mkdirSync('./logs', { recursive: true });
+          }
+          
+          // Create a timestamped filename for the log
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const logFilePath = `./logs/gemini_response_${timestamp}.txt`;
+          
+          // Write the complete text to the log file
+          fs.writeFileSync(logFilePath, rawContent);
+          console.log(`Complete Gemini response saved to ${logFilePath}`);
+          
+          // Also write raw API response JSON for reference
+          fs.writeFileSync(`./logs/gemini_raw_${timestamp}.json`, JSON.stringify(data, null, 2));
+        }).catch(err => {
+          console.error('Failed to import fs module:', err);
+        });
+      } catch (err) {
+        console.error('Error writing Gemini log file:', err);
+      }
     }
+    
+    // Clean up any markdown code blocks
+    if (rawContent.includes('```')) {
+      console.warn('[GEMINI RESPONSE WARNING] Response contains markdown code blocks - cleaning up');
+      
+      // If content starts with code block, remove the opening marker
+      if (rawContent.startsWith('```')) {
+        // Handle language specifier like ```json
+        const afterMarker = rawContent.substring(3);
+        const languageMatch = afterMarker.match(/^[a-z]+\s/);
+        const contentStartPos = languageMatch ? 3 + languageMatch[0].length : 3;
+        
+        // Get content after the opening marker
+        rawContent = rawContent.substring(contentStartPos);
+        console.log('[GEMINI] Removed opening code block marker');
+      }
+      
+      // Remove closing code block marker if present
+      if (rawContent.endsWith('```')) {
+        rawContent = rawContent.substring(0, rawContent.length - 3).trim();
+        console.log('[GEMINI] Removed closing code block marker');
+      }
+      
+      // Remove any remaining code block markers
+      rawContent = rawContent.replace(/```/g, '');
+      console.log('[GEMINI] Cleaned response of code block markers');
+    }
+    
+    // Fix potentially malformed JSON
+    if (rawContent.startsWith('{') && (rawContent.includes('"contactInfo"') || rawContent.includes('"jobTitle"'))) {
+      console.log('[GEMINI] Attempting to fix potentially malformed JSON');
+      
+      try {
+        // Try to parse as-is first
+        JSON.parse(rawContent);
+        console.log('[GEMINI] JSON appears valid');
+      } catch (jsonError) {
+        console.warn('[GEMINI] JSON parsing failed, applying fixes:', jsonError.message);
+        
+        // For extreme cases like very large documents, try extracting just the most crucial info
+        if (rawContent.length > 10000) {
+          console.log('[GEMINI] Large document detected, applying more aggressive JSON extraction');
+          
+          try {
+            // First attempt - extract only basic fields
+            const contactInfoMatch = rawContent.match(/"contactInfo"\s*:\s*{([^}]+)}/);
+            const contactInfo = contactInfoMatch ? contactInfoMatch[0] : ''; 
+            
+            const summaryMatch = rawContent.match(/"summary"\s*:\s*"[^"]+"/);
+            const summary = summaryMatch ? summaryMatch[0] : '';
+            
+            // Extract just the first few experiences
+            let experienceMatch = rawContent.match(/"experience"\s*:\s*\[\s*{[^{]*?}\s*,\s*{[^{]*?}\s*,\s*{[^{]*?}\s*\]/);
+            if (!experienceMatch) {
+              // Try with fewer items
+              experienceMatch = rawContent.match(/"experience"\s*:\s*\[\s*{[^{]*?}\s*,\s*{[^{]*?}\s*\]/);
+              if (!experienceMatch) {
+                // Try with just one item
+                experienceMatch = rawContent.match(/"experience"\s*:\s*\[\s*{[^{]*?}\s*\]/);
+              }
+            }
+            const experience = experienceMatch ? experienceMatch[0] : '"experience": []';
+            
+            // Extract education
+            let educationMatch = rawContent.match(/"education"\s*:\s*\[[^\]]*?\]/);
+            const education = educationMatch ? educationMatch[0] : '"education": []';
+            
+            // Extract skills
+            let skillsMatch = rawContent.match(/"skills"\s*:\s*\[[^\]]*?\]/);
+            const skills = skillsMatch ? skillsMatch[0] : '"skills": []';
+            
+            // Extract certifications if present
+            let certificationsMatch = rawContent.match(/"certifications"\s*:\s*\[[^\]]*?\]/);
+            const certifications = certificationsMatch ? certificationsMatch[0] + ',' : '';
+            
+            // Build a simplified JSON with only the key parts
+            const truncatedJson = 
+              '{\n' +
+              '  ' + contactInfo + ',\n' +
+              '  ' + summary + ',\n' +
+              '  ' + experience + ',\n' +
+              '  ' + education + ',\n' +
+              '  ' + skills + '\n' +
+              (certifications ? '  ' + certifications + '\n' : '') +
+              '}';
+            
+            // Try to parse the simplified JSON
+            try {
+              // Fix any trailing/missing commas
+              const fixedJson = truncatedJson
+                .replace(/,\s*\n\s*}/g, '\n}')  // Remove comma before closing brace
+                .replace(/"\s*,\s*"/g, '", "')  // Fix spacing around commas
+                .replace(/}\s*,\s*{/g, '}, {'); // Fix spacing in arrays
+                
+              JSON.parse(fixedJson);
+              rawContent = fixedJson;
+              console.log('[GEMINI] Successfully extracted and built simplified JSON');
+            } catch (simplifyError) {
+              console.warn('[GEMINI] Simplified JSON parsing failed:', simplifyError.message);
+              
+              // If that fails, use super aggressive approach for just contact info
+              try {
+                // Just extract name, email, phone, and summary
+                const nameMatch = rawContent.match(/"fullName"\s*:\s*"([^"]*)"/);
+                const emailMatch = rawContent.match(/"email"\s*:\s*"([^"]*)"/);
+                const phoneMatch = rawContent.match(/"phone"\s*:\s*"([^"]*)"/);
+                // Extract summary text - handle the format "summary": "text"
+                let summaryText = '';
+                if (summaryMatch) {
+                  const summaryExtraction = summaryMatch[0].match(/"summary"\s*:\s*"([^"]*)"/);
+                  summaryText = summaryExtraction ? summaryExtraction[1] : '';
+                }
+                
+                const minimumJson = `{
+                  "contactInfo": {
+                    "fullName": "${nameMatch ? nameMatch[1] : ''}",
+                    "email": "${emailMatch ? emailMatch[1] : ''}",
+                    "phone": "${phoneMatch ? phoneMatch[1] : ''}"
+                  },
+                  "summary": "${summaryText}",
+                  "experience": [],
+                  "education": [],
+                  "skills": [],
+                  "certifications": []
+                }`;
+                
+                JSON.parse(minimumJson);
+                rawContent = minimumJson;
+                console.log('[GEMINI] Built minimum viable JSON with just contact info');
+              } catch (minimalError) {
+                console.warn('[GEMINI] Even minimal JSON failed:', minimalError);
+              }
+            }
+          } catch (extractionError) {
+            console.error('[GEMINI] JSON extraction approach failed:', extractionError);
+          }
+        } else {
+          // Standard fixes for smaller JSON
+          const originalContent = rawContent;
+          rawContent = rawContent
+            // Fix trailing commas in arrays and objects
+            .replace(/,(\s*[\]}])/g, '$1')
+            // Fix missing commas between elements
+            .replace(/}(\s*){/g, '},\n$1{')
+            // Fix unescaped quotes in strings by replacing all quotes with controlled replacements
+            .replace(/\\"/g, '____ESCAPED_QUOTE____')
+            .replace(/"/g, '____QUOTE____')
+            .replace(/____ESCAPED_QUOTE____/g, '\\"')
+            .replace(/____QUOTE____/g, '"')
+            // Fix truncated JSON by adding a closing bracket if needed
+            .replace(/([^}])$/, '$1}')
+            // Ensure strings are properly quoted
+            .replace(/([{,]\s*)([^",{}[\]\s]+)(\s*:)/g, '$1"$2"$3');
+          
+          // Check if the JSON is now valid
+          try {
+            JSON.parse(rawContent);
+            console.log('[GEMINI] Successfully fixed malformed JSON');
+          } catch (fixError) {
+            console.warn('[GEMINI] JSON fixing failed, reverting to original content:', fixError.message);
+            rawContent = originalContent;
+          }
+        }
+      }
+    }
+    
+    // Update the content in the response
+    data.candidates[0].content.parts[0].text = rawContent;
     
     // Transform Gemini response to match OpenRouter format
     return {
@@ -320,8 +543,88 @@ export async function queryOpenAI(prompt: string, systemPrompt?: string) {
     
     // Log the raw OpenAI response for debugging
     if (data.choices && data.choices[0] && data.choices[0].message) {
-      const rawContent = data.choices[0].message.content;
+      let rawContent = data.choices[0].message.content;
       console.log(`[RAW OPENAI RESPONSE] First 500 chars: ${rawContent.substring(0, 500)}...`);
+      
+      // Clean up code blocks from responses for easier JSON parsing
+      if (rawContent.includes('```')) {
+        console.log('[OPENAI] Response contains code blocks - cleaning up...');
+        
+        // If content starts with code block, remove the opening marker
+        if (rawContent.startsWith('```')) {
+          // Check for language specifier like ```json
+          const afterMarker = rawContent.substring(3);
+          const languageMatch = afterMarker.match(/^[a-z]+\s/);
+          const contentStartPos = languageMatch ? 3 + languageMatch[0].length : 3;
+          
+          // Get content after the opening marker
+          rawContent = rawContent.substring(contentStartPos);
+          console.log('[OPENAI] Removed opening code block marker');
+        }
+        
+        // Remove closing code block marker if present
+        if (rawContent.endsWith('```')) {
+          rawContent = rawContent.substring(0, rawContent.length - 3).trim();
+          console.log('[OPENAI] Removed closing code block marker');
+        }
+        
+        // Remove any remaining code block markers
+        rawContent = rawContent.replace(/```/g, '');
+        console.log('[OPENAI] Cleaned response of code block markers');
+      }
+      
+      // Special case to fix JSONP style responses (common with OpenAI)
+      if (rawContent.includes('callback(') || rawContent.includes('onResponse(')) {
+        console.log('[OPENAI] JSONP-style response detected, extracting JSON');
+        const match = rawContent.match(/(?:callback|onResponse)\((.*)\)(?:;?)/s);
+        if (match && match[1]) {
+          rawContent = match[1];
+          console.log('[OPENAI] Extracted JSON from callback wrapper');
+        }
+      }
+      
+      // Fix potentially malformed JSON
+      if (rawContent.startsWith('{') && (rawContent.includes('"contactInfo"') || rawContent.includes('"jobTitle"'))) {
+        console.log('[OPENAI] Attempting to fix potentially malformed JSON');
+        
+        try {
+          // Try to parse as-is first
+          JSON.parse(rawContent);
+          console.log('[OPENAI] JSON appears valid');
+        } catch (jsonError) {
+          console.warn('[OPENAI] JSON parsing failed, applying fixes:', jsonError.message);
+          
+          // Fix common JSON issues
+          const originalContent = rawContent;
+          rawContent = rawContent
+            // Fix trailing commas in arrays and objects
+            .replace(/,(\s*[\]}])/g, '$1')
+            // Fix missing commas between elements
+            .replace(/}(\s*){/g, '},\n$1{')
+            // Fix unescaped quotes by using controlled replacements
+            .replace(/\\"/g, '____ESCAPED_QUOTE____')
+            .replace(/"/g, '____QUOTE____')
+            .replace(/____ESCAPED_QUOTE____/g, '\\"')
+            .replace(/____QUOTE____/g, '"')
+            // Fix unterminated strings by adding a quote at the end
+            .replace(/"([^"]*)$/, '"$1"')
+            // Fix truncated JSON by adding closing brackets if needed
+            .replace(/([^}])$/, '$1}');
+            
+          // Check if the JSON is now valid
+          try {
+            JSON.parse(rawContent);
+            console.log('[OPENAI] Successfully fixed malformed JSON');
+          } catch (fixError) {
+            console.warn('[OPENAI] JSON fixing failed, reverting to original content:', fixError.message);
+            rawContent = originalContent;
+          }
+        }
+      }
+      
+      // Update the content in the response
+      data.choices[0].message.content = rawContent;
+      console.log('[OPENAI] Processed and cleaned response content');
     }
     
     return data;
@@ -378,7 +681,8 @@ export async function queryRequesty(prompt: string, systemPrompt?: string) {
         max_tokens: 8192
       }),
       // Add timeout to prevent hanging requests with large documents
-      signal: AbortSignal.timeout(120000) // 120 second timeout for large documents
+      // Increased timeout for Vertex AI models that may take longer
+      signal: AbortSignal.timeout(300000) // 300 second (5 minute) timeout for Vertex AI models
     });
     
     // Check for HTTP errors
@@ -399,8 +703,202 @@ export async function queryRequesty(prompt: string, systemPrompt?: string) {
     
     // Log the raw response for debugging
     if (data.choices && data.choices[0] && data.choices[0].message) {
-      const rawContent = data.choices[0].message.content;
+      let rawContent = data.choices[0].message.content;
       console.log(`[RAW REQUESTY RESPONSE] First 500 chars: ${rawContent.substring(0, 500)}...`);
+      
+      // Write complete response to log file
+      if (typeof process !== 'undefined') {
+        try {
+          // Dynamic import for ESM compatibility
+          import('fs').then(fs => {
+            // Create logs directory if it doesn't exist
+            if (!fs.existsSync('./logs')) {
+              fs.mkdirSync('./logs', { recursive: true });
+            }
+            
+            // Create a timestamped filename for the log
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const logFilePath = `./logs/requesty_response_${timestamp}.txt`;
+            
+            // Write the complete text to the log file
+            fs.writeFileSync(logFilePath, rawContent);
+            console.log(`Complete Requesty response saved to ${logFilePath}`);
+            
+            // Also write raw API response JSON for reference
+            fs.writeFileSync(`./logs/requesty_raw_${timestamp}.json`, JSON.stringify(data, null, 2));
+          }).catch(err => {
+            console.error('Failed to import fs module:', err);
+          });
+        } catch (err) {
+          console.error('Error writing Requesty log file:', err);
+        }
+      }
+      
+      // Clean up code blocks from responses for easier JSON parsing
+      if (rawContent.includes('```')) {
+        console.log('[REQUESTY] Response contains code blocks - cleaning up...');
+        
+        // If content starts with code block, remove the opening marker
+        if (rawContent.startsWith('```')) {
+          // Check for language specifier like ```json
+          const afterMarker = rawContent.substring(3);
+          const languageMatch = afterMarker.match(/^[a-z]+\s/);
+          const contentStartPos = languageMatch ? 3 + languageMatch[0].length : 3;
+          
+          // Get content after the opening marker
+          rawContent = rawContent.substring(contentStartPos);
+          console.log('[REQUESTY] Removed opening code block marker');
+        }
+        
+        // Remove closing code block marker if present
+        if (rawContent.endsWith('```')) {
+          rawContent = rawContent.substring(0, rawContent.length - 3).trim();
+          console.log('[REQUESTY] Removed closing code block marker');
+        }
+        
+        // Remove any remaining code block markers
+        rawContent = rawContent.replace(/```/g, '');
+        console.log('[REQUESTY] Cleaned response of code block markers');
+      }
+      
+      // Fix potentially malformed JSON
+      if (rawContent.startsWith('{') && (rawContent.includes('"contactInfo"') || rawContent.includes('"jobTitle"'))) {
+        console.log('[REQUESTY] Attempting to fix potentially malformed JSON');
+        
+        try {
+          // Try to parse as-is first
+          JSON.parse(rawContent);
+          console.log('[REQUESTY] JSON appears valid');
+        } catch (jsonError) {
+          console.warn('[REQUESTY] JSON parsing failed, applying fixes:', jsonError.message);
+          
+          // For extreme cases like very large documents, try extracting just the most crucial info
+          if (rawContent.length > 10000) {
+            console.log('[REQUESTY] Large document detected, applying more aggressive JSON extraction');
+            
+            try {
+              // First attempt - extract only basic fields
+              const contactInfoMatch = rawContent.match(/"contactInfo"\s*:\s*{([^}]+)}/);
+              const contactInfo = contactInfoMatch ? contactInfoMatch[0] : ''; 
+              
+              const summaryMatch = rawContent.match(/"summary"\s*:\s*"[^"]+"/);
+              const summary = summaryMatch ? summaryMatch[0] : '';
+              
+              // Extract just the first few experiences
+              let experienceMatch = rawContent.match(/"experience"\s*:\s*\[\s*{[^{]*?}\s*,\s*{[^{]*?}\s*,\s*{[^{]*?}\s*\]/);
+              if (!experienceMatch) {
+                // Try with fewer items
+                experienceMatch = rawContent.match(/"experience"\s*:\s*\[\s*{[^{]*?}\s*,\s*{[^{]*?}\s*\]/);
+                if (!experienceMatch) {
+                  // Try with just one item
+                  experienceMatch = rawContent.match(/"experience"\s*:\s*\[\s*{[^{]*?}\s*\]/);
+                }
+              }
+              const experience = experienceMatch ? experienceMatch[0] : '"experience": []';
+              
+              // Extract education
+              let educationMatch = rawContent.match(/"education"\s*:\s*\[[^\]]*?\]/);
+              const education = educationMatch ? educationMatch[0] : '"education": []';
+              
+              // Extract skills
+              let skillsMatch = rawContent.match(/"skills"\s*:\s*\[[^\]]*?\]/);
+              const skills = skillsMatch ? skillsMatch[0] : '"skills": []';
+              
+              // Build a simplified JSON with only the key parts
+              const truncatedJson = 
+                '{\n' +
+                '  ' + contactInfo + ',\n' +
+                '  ' + summary + ',\n' +
+                '  ' + experience + ',\n' +
+                '  ' + education + ',\n' +
+                '  ' + skills + '\n' +
+                '}';
+              
+              // Try to parse the simplified JSON
+              try {
+                // Fix any trailing/missing commas
+                const fixedJson = truncatedJson
+                  .replace(/,\s*\n\s*}/g, '\n}')  // Remove comma before closing brace
+                  .replace(/"\s*,\s*"/g, '", "')  // Fix spacing around commas
+                  .replace(/}\s*,\s*{/g, '}, {'); // Fix spacing in arrays
+                  
+                JSON.parse(fixedJson);
+                rawContent = fixedJson;
+                console.log('[REQUESTY] Successfully extracted and built simplified JSON');
+              } catch (simplifyError) {
+                console.warn('[REQUESTY] Simplified JSON parsing failed:', simplifyError.message);
+                
+                // If that fails, use super aggressive approach for just contact info
+                try {
+                  // Just extract name, email, phone, and summary
+                  const nameMatch = rawContent.match(/"fullName"\s*:\s*"([^"]*)"/);
+                  const emailMatch = rawContent.match(/"email"\s*:\s*"([^"]*)"/);
+                  const phoneMatch = rawContent.match(/"phone"\s*:\s*"([^"]*)"/);
+                  
+                  // Extract summary text - handle the format "summary": "text"
+                  let summaryText = '';
+                  const summaryMatch = rawContent.match(/"summary"\s*:\s*"[^"]+"/);
+                  if (summaryMatch) {
+                    const summaryExtraction = summaryMatch[0].match(/"summary"\s*:\s*"([^"]*)"/);
+                    summaryText = summaryExtraction ? summaryExtraction[1] : '';
+                  }
+                  
+                  const minimumJson = `{
+                    "contactInfo": {
+                      "fullName": "${nameMatch ? nameMatch[1] : ''}",
+                      "email": "${emailMatch ? emailMatch[1] : ''}",
+                      "phone": "${phoneMatch ? phoneMatch[1] : ''}"
+                    },
+                    "summary": "${summaryText}",
+                    "experience": [],
+                    "education": [],
+                    "skills": [],
+                    "certifications": []
+                  }`;
+                  
+                  JSON.parse(minimumJson);
+                  rawContent = minimumJson;
+                  console.log('[REQUESTY] Built minimum viable JSON with just contact info');
+                } catch (minimalError) {
+                  console.warn('[REQUESTY] Even minimal JSON failed:', minimalError);
+                }
+              }
+            } catch (extractionError) {
+              console.error('[REQUESTY] JSON extraction approach failed:', extractionError);
+            }
+          } else {
+            // Standard fixes for smaller JSON
+            const originalContent = rawContent;
+            rawContent = rawContent
+              // Fix trailing commas in arrays and objects
+              .replace(/,(\s*[\]}])/g, '$1')
+              // Fix missing commas between elements
+              .replace(/}(\s*){/g, '},\n$1{')
+              // Fix unescaped quotes by using controlled replacements
+              .replace(/\\"/g, '____ESCAPED_QUOTE____')
+              .replace(/"/g, '____QUOTE____')
+              .replace(/____ESCAPED_QUOTE____/g, '\\"')
+              .replace(/____QUOTE____/g, '"')
+              // Fix unterminated strings by adding a quote at the end
+              .replace(/"([^"]*)$/, '"$1"')
+              // Fix truncated JSON by adding closing brackets if needed
+              .replace(/([^}])$/, '$1}');
+              
+            // Check if the JSON is now valid
+            try {
+              JSON.parse(rawContent);
+              console.log('[REQUESTY] Successfully fixed malformed JSON');
+            } catch (fixError) {
+              console.warn('[REQUESTY] JSON fixing failed, reverting to original content:', fixError.message);
+              rawContent = originalContent;
+            }
+          }
+        }
+      }
+      
+      // Update the content in the response
+      data.choices[0].message.content = rawContent;
+      console.log('[REQUESTY] Processed and cleaned response content');
     }
     
     return data;
@@ -411,90 +909,139 @@ export async function queryRequesty(prompt: string, systemPrompt?: string) {
 }
 
 // Function to handle AI requests with prioritization of different providers
-export async function queryAI(prompt: string, systemPrompt?: string) {
-  // Try Requesty Router first
+// Load user settings or use defaults
+async function loadUserSettings() {
   try {
-    console.log('Using Requesty Router API with Gemini model for AI processing');
-    return await queryRequesty(prompt, systemPrompt);
-  } catch (requestyError) {
-    console.error('Requesty Router provider failed, falling back to direct Gemini:', requestyError);
-    
-    // Try Gemini as fallback
-    try {
-      console.log('Falling back to direct Gemini model for AI processing');
-      return await queryGemini(prompt, systemPrompt);
-    } catch (geminiError) {
-      console.error('All AI providers failed!', geminiError);
-      
-      // Create a more robust mock response to prevent crashes and provide minimal functionality
-      console.log('[FALLBACK] Creating fallback API response');
-      
-      // Try to extract basic information from the prompt if it's available
-      let fallbackData = {
-        contactInfo: {
-          fullName: "Unknown",
-          email: "",
-          phone: "",
-          location: "",
-          linkedin: ""
-        },
-        skills: [
-          "Communication", 
-          "Problem Solving",
-          "Teamwork"
-        ],
-        education: [{
-          institution: "University",
-          degree: "Degree",
-          field: "Field of Study",
-          graduationDate: "Recent"
-        }],
-        experience: [{
-          title: "Professional",
-          company: "Company",
-          location: "",
-          startDate: "Recent",
-          endDate: "Present",
-          description: ["Professional experience"]
-        }],
-        summary: "Resume could not be processed fully due to AI service limitations. Basic information has been extracted."
-      };
-      
-      // Try to extract an email from the prompt
+    if (typeof window !== 'undefined') {
+      // Client side - try to check local storage first (for non-authenticated users)
       try {
-        const emailMatch = prompt.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/i);
-        if (emailMatch && emailMatch[1]) {
-          fallbackData.contactInfo.email = emailMatch[1];
+        const localSettings = localStorage.getItem('userSettings');
+        if (localSettings) {
+          console.log('Using settings from localStorage');
+          return JSON.parse(localSettings);
         }
-        
-        // Try to extract a phone number from the prompt
-        const phoneMatch = prompt.match(/(\+?1?\s*\(?[0-9]{3}\)?[-. ][0-9]{3}[-. ][0-9]{4})/);
-        if (phoneMatch && phoneMatch[1]) {
-          fallbackData.contactInfo.phone = phoneMatch[1];
-        }
-        
-        // Get the first few lines to see if there's a name
-        const lines = prompt.split('\n').slice(0, 10).map(line => line.trim()).filter(Boolean);
-        if (lines.length > 0 && lines[0].length < 40) {
-          fallbackData.contactInfo.fullName = lines[0];
-        }
-        
-        console.log('[FALLBACK] Created mock response with basic data extraction');
-      } catch (err) {
-        console.error('[FALLBACK] Error extracting basic info from prompt:', err);
+      } catch (localStorageError) {
+        console.log('No local settings found:', localStorageError);
       }
       
-      return {
-        choices: [
-          {
-            message: {
-              content: JSON.stringify(fallbackData),
-              role: 'assistant'
-            },
-            index: 0
+      // Then try the API (for authenticated users)
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+        
+        const response = await fetch('/api/settings', {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          const settings = await response.json();
+          console.log('Using settings from API');
+          
+          // Save to localStorage for future use
+          try {
+            localStorage.setItem('userSettings', JSON.stringify(settings));
+          } catch (saveError) {
+            console.warn('Failed to save settings to localStorage:', saveError);
           }
-        ]
+          
+          return settings;
+        }
+      } catch (apiError) {
+        console.log('Failed to load settings from API:', apiError);
+      }
+    } else if (global.userSettings) {
+      // Server side - use cached settings if available
+      return global.userSettings;
+    } else {
+      // Server side - always use Claude 3.7 Sonnet via Requesty
+      return {
+        aiProvider: 'requesty',
+        aiModel: 'vertex/anthropic/claude-3-7-sonnet-20250219@us-east5',
+        documentAiOnly: true,
+        enableLogging: true
       };
     }
+  } catch (error) {
+    console.error('Error loading settings:', error);
+  }
+  
+  // Default settings if loading fails
+  return {
+    aiProvider: 'requesty',
+    aiModel: 'vertex/anthropic/claude-3-7-sonnet-20250219@us-east5',
+    documentAiOnly: true,
+    enableLogging: true
+  };
+}
+
+export async function queryAI(prompt: string, systemPrompt?: string) {
+  // Load user settings
+  const settings = await loadUserSettings();
+  
+  // Handle provider and model from settings - always default to Claude 3.7 Sonnet
+  const provider = settings.aiProvider || 'requesty';
+  const model = settings.aiModel || 'vertex/anthropic/claude-3-7-sonnet-20250219@us-east5';
+  
+  console.log(`Using AI provider from settings: ${provider}`);
+  console.log(`Using AI model from settings: ${model}`);
+  
+  // Configure the selected provider and model
+  switch (provider) {
+    case 'requesty':
+      AI_CONFIG.requesty.model = model;
+      break;
+    case 'openrouter':
+      // Configure for OpenRouter
+      // Would need to add OpenRouter to AI_CONFIG
+      AI_CONFIG.openai.model = model; // Use OpenAI format for now
+      break;
+    case 'anthropic':
+      // Configure for direct Anthropic API
+      AI_CONFIG.openai.model = model; // Use OpenAI format for now
+      break;
+    case 'google':
+      // Configure for direct Google API
+      AI_CONFIG.gemini.model = model;
+      break;
+    case 'openai':
+      // Configure for direct OpenAI API
+      AI_CONFIG.openai.model = model;
+      break;
+    default:
+      // Default to Requesty
+      AI_CONFIG.requesty.model = model;
+  }
+  
+  // Use the selected provider without any fallbacks
+  console.log(`Using ${provider} provider with model ${model} with NO FALLBACKS`);
+  
+  switch (provider) {
+    case 'requesty':
+      console.log(`Using Requesty Router API with model ${AI_CONFIG.requesty.model}`);
+      return await queryRequesty(prompt, systemPrompt);
+    case 'openrouter':
+      console.log(`Using OpenRouter API with model ${model}`);
+      // Would need to implement queryOpenRouter function
+      return await queryOpenAI(prompt, systemPrompt);
+    case 'anthropic':
+      console.log(`Using Anthropic API directly with model ${model}`);
+      // Would need to implement queryAnthropic function
+      return await queryOpenAI(prompt, systemPrompt);
+    case 'google':
+      console.log(`Using Google AI API directly with model ${model}`);
+      return await queryGemini(prompt, systemPrompt);
+    case 'openai':
+      console.log(`Using OpenAI API directly with model ${model}`);
+      return await queryOpenAI(prompt, systemPrompt);
+    case 'vertex':
+      console.log(`Using Vertex AI with model ${model}`);
+      AI_CONFIG.vertex.model = model;
+      // For now, we're using Requesty as it can route to Vertex AI
+      return await queryRequesty(prompt, systemPrompt);
+    default:
+      console.log(`Using Requesty Router API (default) with model ${AI_CONFIG.requesty.model}`);
+      return await queryRequesty(prompt, systemPrompt);
   }
 }
