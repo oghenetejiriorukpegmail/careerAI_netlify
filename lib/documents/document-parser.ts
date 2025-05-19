@@ -29,6 +29,35 @@ export interface ParsedResume {
     name?: string;
     description?: string;
   }>;
+  certifications?: Array<{
+    name?: string;
+    title?: string;
+    issuer?: string;
+    organization?: string;
+    date?: string;
+    issueDate?: string;
+    validUntil?: string;
+    description?: string;
+  }>;
+  training?: Array<{
+    name?: string;
+    title?: string;
+    provider?: string;
+    institution?: string;
+    date?: string;
+    completionDate?: string;
+    duration?: string;
+    description?: string;
+  }>;
+  references?: Array<{
+    name?: string;
+    title?: string;
+    position?: string;
+    company?: string;
+    email?: string;
+    phone?: string;
+    relationship?: string;
+  }>;
 }
 
 export interface ParsedJobDescription {
@@ -49,15 +78,39 @@ export interface ParsedJobDescription {
 /**
  * Extract structured data from resume text using AI
  * @param resumeText Raw text from resume
+ * @param debug Whether to enable debug mode
  * @returns Structured resume data
  */
-export async function extractStructuredResumeData(resumeText: string): Promise<ParsedResume> {
+export async function extractStructuredResumeData(resumeText: string, debug: boolean = false): Promise<ParsedResume> {
   try {
     console.log(`Processing resume text (${resumeText.length} chars) in a single request`);
     
+    // Output debug info if requested
+    if (debug) {
+      console.log('\n[RESUME_PARSER_DEBUG] Input text sample:');
+      console.log('-'.repeat(80));
+      console.log(resumeText.substring(0, 1000) + (resumeText.length > 1000 ? '...' : ''));
+      console.log('-'.repeat(80));
+      
+      // Optionally write to a debug file
+      if (typeof process !== 'undefined') {
+        try {
+          // Use dynamic import for ESM compatibility
+          import('fs').then(fs => {
+            fs.writeFileSync('./resume_input.debug.md', resumeText);
+            console.log('[RESUME_PARSER_DEBUG] Full input written to resume_input.debug.md');
+          }).catch(err => {
+            console.error('[RESUME_PARSER_DEBUG] Failed to import fs module:', err);
+          });
+        } catch (err) {
+          console.error('[RESUME_PARSER_DEBUG] Error writing debug file:', err);
+        }
+      }
+    }
+    
     // With Gemini 2.5 Flash, we can process even very large resumes in a single call
     // No need to split into sections anymore
-    return await extractResumeSection(resumeText, "full");
+    return await extractResumeSection(resumeText, "full", debug);
   } catch (error) {
     console.error('Error extracting structured data from resume:', error);
     
@@ -120,7 +173,11 @@ export async function extractStructuredResumeData(resumeText: string): Promise<P
  * @param sectionType The type of section: "full", "basic", or "experience"
  * @returns Partial or complete resume data
  */
-async function extractResumeSection(sectionText: string, sectionType: "full" | "basic" | "experience"): Promise<ParsedResume> {
+async function extractResumeSection(
+  sectionText: string, 
+  sectionType: "full" | "basic" | "experience",
+  debug: boolean = false
+): Promise<ParsedResume> {
   try {    
     // Create a focused prompt based on the section we're analyzing
     let focusInstructions = "";
@@ -131,8 +188,12 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
       focusInstructions = "Focus on extracting detailed work experience entries and projects.";
     }
     
+    if (debug) {
+      console.log(`[RESUME_PARSER_DEBUG] Extracting ${sectionType} section (${sectionText.length} chars)`);
+    }
+    
     const prompt = `
-      You are parsing ${sectionType === "full" ? "a complete resume" : "a section of a resume"}. 
+      You are parsing ${sectionType === "full" ? "a complete resume" : "a section of a resume"} that has been extracted from a PDF using Google Document AI. 
       Extract structured information and return ONLY a JSON object with the following structure - no explanations, no preamble, no markdown formatting:
       {
         "contactInfo": {
@@ -167,23 +228,60 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
             "name": "Project name",
             "description": "Project description"
           }
+        ],
+        "certifications": [
+          {
+            "name": "Certification name",
+            "issuer": "Issuing organization",
+            "date": "Date obtained (MM/YYYY)",
+            "validUntil": "Expiration date if applicable",
+            "description": "Additional details about the certification"
+          }
+        ],
+        "training": [
+          {
+            "name": "Course or training name",
+            "provider": "Training provider or institution",
+            "date": "Completion date",
+            "duration": "Duration of the training",
+            "description": "Description of the training"
+          }
+        ],
+        "references": [
+          {
+            "name": "Reference name",
+            "title": "Reference's job title",
+            "company": "Reference's company",
+            "email": "Reference's email",
+            "phone": "Reference's phone",
+            "relationship": "Relationship to reference"
+          }
         ]
       }
       
       ${focusInstructions}
+      
+      IMPORTANT - This document was extracted directly from a PDF using Google Document AI, which has already preserved the document structure. Look for:
+      1. Common resume section headers like EDUCATION, EXPERIENCE, SKILLS, CERTIFICATIONS, etc.
+      2. Date patterns that indicate employment periods or graduation dates
+      3. Contact information typically found at the top of a resume
+      4. Lists of skills, responsibilities, or accomplishments
+      
+      Be especially thorough in extracting certifications, training/courses, and references sections if they exist. These are often overlooked but provide valuable information.
       
       Resume text:
       ${sectionText}
       
       CRITICAL FORMATTING INSTRUCTIONS:
       1. Return ONLY a raw, valid JSON object with NO explanations before or after
-      2. DO NOT use any markdown code formatting
+      2. DO NOT use any markdown code formatting (no \`\`\` markers)
       3. DO NOT use the text "json" anywhere in your response
       4. DO NOT wrap your response in code blocks
-      5. DO NOT include any special markers
+      5. DO NOT include any special markers in your response
       6. Only provide the bare JSON object starting with { and ending with }
       7. Make sure all strings are properly escaped with double quotes
       8. If you can't find certain information, omit the field rather than leaving it empty
+      9. Be VERY thorough in extracting all information from the resume
       
       Your entire response must be a valid JSON object that can be directly processed by JSON.parse().
       
@@ -191,7 +289,7 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
       YOUR RESPONSE MUST START WITH { AND END WITH } WITH NO OTHER TEXT BEFORE OR AFTER.
     `;
     
-    const systemPrompt = "You are an expert resume parser API that returns pure JSON data with no formatting. CRITICAL: Your entire response must be a valid JSON object starting with { and ending with }, containing no markdown formatting, no code blocks, and no other text. Your response must be directly parseable by JSON.parse() with no preprocessing.";
+    const systemPrompt = "You are an expert resume parser API that processes text extracted from PDFs by Google Document AI and returns pure JSON data with no formatting. CRITICAL: Your entire response must be a valid JSON object starting with { and ending with }, containing no markdown formatting, no code blocks, and no other text. Your response must be directly parseable by JSON.parse() with no preprocessing. NEVER FORMAT YOUR RESPONSE AS A CODE BLOCK. NEVER USE ``` MARKERS ANYWHERE. DO NOT WRAP YOUR RESPONSE WITH ```json or ``` TAGS.";
     
     // Call the AI service
     const response = await queryAI(prompt, systemPrompt);
@@ -205,34 +303,50 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
     }
     
     // Log the raw response for debugging
-    console.log(`Raw ${sectionType} section response (first 100 chars):`, 
+    const logPrefix = debug ? '[RESUME_PARSER_DEBUG]' : '';
+    console.log(`${logPrefix} Raw ${sectionType} section response (first 100 chars):`, 
       response.choices[0].message.content.substring(0, 100) + '...');
       
     // Log additional details about the response for debugging JSON extraction issues
     const rawContent = response.choices[0].message.content;
-    console.log(`[DETAILS] Response length: ${rawContent.length} characters`);
+    console.log(`${logPrefix} [DETAILS] Response length: ${rawContent.length} characters`);
+    
+    // Debug: Write full response to file if debug mode is enabled
+    if (debug && typeof process !== 'undefined') {
+      try {
+        // Use dynamic import for ESM compatibility
+        import('fs').then(fs => {
+          fs.writeFileSync(`./${sectionType}_response.debug.json`, rawContent);
+          console.log(`${logPrefix} Full AI response written to ${sectionType}_response.debug.json`);
+        }).catch(err => {
+          console.error(`${logPrefix} Failed to import fs module:`, err);
+        });
+      } catch (err) {
+        console.error(`${logPrefix} Error writing debug file:`, err);
+      }
+    }
     
     if (rawContent.includes('```')) {
-      console.log('[DETAILS] Response contains code blocks');
+      console.log(`${logPrefix} [DETAILS] Response contains code blocks`);
       
       // Count code block markers and log their positions
       let codeBlockCount = (rawContent.match(/```/g) || []).length;
-      console.log(`[DETAILS] Found ${codeBlockCount} code block markers`);
+      console.log(`${logPrefix} [DETAILS] Found ${codeBlockCount} code block markers`);
       
       if (codeBlockCount % 2 === 0) {
-        console.log('[DETAILS] Code block markers appear to be properly paired');
+        console.log(`${logPrefix} [DETAILS] Code block markers appear to be properly paired`);
       } else {
-        console.warn('[WARNING] Odd number of code block markers - this may cause extraction issues');
+        console.warn(`${logPrefix} [WARNING] Odd number of code block markers - this may cause extraction issues`);
       }
       
       // Log first and last code block positions
       let firstPos = rawContent.indexOf('```');
       let lastPos = rawContent.lastIndexOf('```');
-      console.log(`[DETAILS] First code block marker at position ${firstPos}, last marker at position ${lastPos}`);
+      console.log(`${logPrefix} [DETAILS] First code block marker at position ${firstPos}, last marker at position ${lastPos}`);
       
       // Try to detect if content is wrapped in a code block
       if (firstPos < 20 && lastPos > rawContent.length - 20) {
-        console.log('[DETAILS] Content appears to be completely wrapped in a code block');
+        console.log(`${logPrefix} [DETAILS] Content appears to be completely wrapped in a code block`);
       }
     }
     
@@ -261,6 +375,31 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
       structuredData.experience = structuredData.experience || [];
       structuredData.education = structuredData.education || [];
       structuredData.skills = structuredData.skills || [];
+      
+      // Log the complete structured data to file for reference and debugging
+      if (typeof process !== 'undefined') {
+        try {
+          // Use dynamic import for ESM compatibility
+          import('fs').then(fs => {
+            // Create logs directory if it doesn't exist
+            if (!fs.existsSync('./logs')) {
+              fs.mkdirSync('./logs', { recursive: true });
+            }
+            
+            // Create a timestamped filename for the log
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const logFilePath = `./logs/parsed_resume_${timestamp}.json`;
+            
+            // Write the structured data to the log file with nice formatting
+            fs.writeFileSync(logFilePath, JSON.stringify(structuredData, null, 2));
+            console.log(`Complete structured resume data saved to ${logFilePath}`);
+          }).catch(err => {
+            console.error('Failed to import fs module:', err);
+          });
+        } catch (err) {
+          console.error('Error writing structured data log file:', err);
+        }
+      }
       
       console.log(`Successfully parsed ${sectionType} section JSON response`);
       return structuredData;
@@ -441,6 +580,11 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
           }
         }
         
+        // Try to extract certifications, training, and references using pattern matching
+        const certifications = extractCertifications(sectionText);
+        const training = extractTraining(sectionText);
+        const references = extractReferences(sectionText);
+        
         // Look for university or college names to extract education
         const educationInstitutions = [
           'University', 'College', 'Institute', 'School', 'Academy', 'Bachelor', 'Master', 'PhD'
@@ -468,7 +612,8 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
         
         console.log(`[FALLBACK] Extracted basic info: Name: ${name}, Email: ${email}, Phone: ${phone}, Skills: ${skillSet.size}`);
         
-        return {
+        // Create the fallback data structure
+        const fallbackData = {
           contactInfo: {
             fullName: name,
             email: email,
@@ -480,8 +625,42 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
           experience: [],
           education: education,
           skills: Array.from(skillSet),
-          projects: []
+          projects: [],
+          certifications: certifications,
+          training: training,
+          references: references
         };
+        
+        // Log the fallback extraction results for debugging
+        if (typeof process !== 'undefined') {
+          try {
+            // Use dynamic import for ESM compatibility
+            import('fs').then(fs => {
+              // Create logs directory if it doesn't exist
+              if (!fs.existsSync('./logs')) {
+                fs.mkdirSync('./logs', { recursive: true });
+              }
+              
+              // Create a timestamped filename for the log
+              const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+              const logFilePath = `./logs/fallback_extraction_${timestamp}.json`;
+              
+              // Write the structured data to the log file with nice formatting
+              fs.writeFileSync(logFilePath, JSON.stringify(fallbackData, null, 2));
+              console.log(`Fallback extraction results saved to ${logFilePath}`);
+              
+              // Also save the original text that we tried to parse
+              fs.writeFileSync(`./logs/failed_parsing_text_${timestamp}.txt`, sectionText);
+              console.log(`Original text that failed parsing saved to logs/failed_parsing_text_${timestamp}.txt`);
+            }).catch(err => {
+              console.error('Failed to import fs module:', err);
+            });
+          } catch (err) {
+            console.error('Error writing fallback data log file:', err);
+          }
+        }
+        
+        return fallbackData;
       } catch (fallbackError) {
         console.error('[FALLBACK] Basic extraction failed:', fallbackError);
         
@@ -492,7 +671,10 @@ async function extractResumeSection(sectionText: string, sectionType: "full" | "
           experience: [],
           education: [],
           skills: [],
-          projects: []
+          projects: [],
+          certifications: [],
+          training: [],
+          references: []
         };
       }
     }
@@ -603,7 +785,7 @@ async function parseJobDescriptionSection(
     }
     
     const prompt = `
-      You are parsing ${sectionType === "full" ? "a complete job description" : "a section of a job description"}.
+      You are parsing ${sectionType === "full" ? "a complete job description" : "a section of a job description"} that has been extracted from a PDF using Google Document AI.
       Extract structured information and return ONLY a JSON object with the following structure - no explanations, no preamble, no markdown formatting:
       {
         "jobTitle": "Job title",
@@ -617,24 +799,37 @@ async function parseJobDescriptionSection(
       }
       
       ${focusInstructions}
+      
+      IMPORTANT - This document was extracted directly from a PDF using Google Document AI, which has already preserved the document structure. Look for:
+      1. Section headers like REQUIREMENTS, RESPONSIBILITIES, QUALIFICATIONS, etc.
+      2. Lists of requirements, responsibilities, and qualifications
+      3. The job title and company name typically appear near the top
+      4. Information about company culture, benefits, or work environment
+      
       Include the most important ATS keywords that would be used to filter candidates.
       These should include technical skills, soft skills, experience levels, certifications, etc.
       
       Job description section:
       ${sectionText}
       
-      RESPOND ONLY WITH VALID JSON, with no explanations before or after.
-      DO NOT use markdown formatting or code blocks with backticks.
-      DO NOT wrap your response in code blocks or special markers.
-      Only provide the raw JSON object.
-      If you can't find certain information, provide empty arrays rather than omitting fields.
+      CRITICAL FORMATTING INSTRUCTIONS:
+      1. Return ONLY a raw, valid JSON object with NO explanations before or after
+      2. DO NOT use any markdown code formatting (no \`\`\` markers)
+      3. DO NOT use the text "json" anywhere in your response
+      4. DO NOT wrap your response in code blocks
+      5. DO NOT include any special markers in your response
+      6. Only provide the bare JSON object starting with { and ending with }
+      7. Make sure all strings are properly escaped with double quotes
+      8. If you can't find certain information, provide empty arrays rather than omitting fields
+      9. Extract ALL information comprehensively, including all details from each section
       
-      CRITICAL: DO NOT FORMAT YOUR RESPONSE AS A CODE BLOCK. ONLY RETURN THE RAW JSON OBJECT.
-      NEVER PUT JSON IN A CODE BLOCK.
-      NEVER USE SPECIAL MARKERS ANYWHERE IN YOUR RESPONSE.
+      Your entire response must be a valid JSON object that can be directly processed by JSON.parse().
+      
+      AGAIN: NEVER USE MARKDOWN CODE FORMATTING ANYWHERE IN YOUR RESPONSE.
+      YOUR RESPONSE MUST START WITH { AND END WITH } WITH NO OTHER TEXT BEFORE OR AFTER.
     `;
     
-    const systemPrompt = "You are an expert job description parser API. Extract structured information from job descriptions and return ONLY valid JSON with no explanations or markdown formatting. Your ENTIRE response must be a valid JSON object and nothing else. Do not use code blocks, do not include any text before or after the JSON. The JSON should be directly parseable by JSON.parse() without any preprocessing.";
+    const systemPrompt = "You are an expert job description parser API that processes text extracted from PDFs by Google Document AI. Extract structured information from job descriptions and return ONLY valid JSON with no explanations or formatting. Your ENTIRE response must be a valid JSON object and nothing else. Do not use code blocks, do not include any text before or after the JSON. The JSON should be directly parseable by JSON.parse() without any preprocessing. NEVER FORMAT YOUR RESPONSE AS A CODE BLOCK. NEVER USE ``` MARKERS ANYWHERE. DO NOT WRAP YOUR RESPONSE WITH ```json or ``` TAGS.";
     
     // Call the AI service
     const response = await queryAI(prompt, systemPrompt);
@@ -648,34 +843,50 @@ async function parseJobDescriptionSection(
     }
     
     // Log the raw response for debugging
-    console.log(`Raw ${sectionType} section response (first 100 chars):`, 
+    const logPrefix = debug ? '[RESUME_PARSER_DEBUG]' : '';
+    console.log(`${logPrefix} Raw ${sectionType} section response (first 100 chars):`, 
       response.choices[0].message.content.substring(0, 100) + '...');
       
     // Log additional details about the response for debugging JSON extraction issues
     const rawContent = response.choices[0].message.content;
-    console.log(`[DETAILS] Response length: ${rawContent.length} characters`);
+    console.log(`${logPrefix} [DETAILS] Response length: ${rawContent.length} characters`);
+    
+    // Debug: Write full response to file if debug mode is enabled
+    if (debug && typeof process !== 'undefined') {
+      try {
+        // Use dynamic import for ESM compatibility
+        import('fs').then(fs => {
+          fs.writeFileSync(`./${sectionType}_response.debug.json`, rawContent);
+          console.log(`${logPrefix} Full AI response written to ${sectionType}_response.debug.json`);
+        }).catch(err => {
+          console.error(`${logPrefix} Failed to import fs module:`, err);
+        });
+      } catch (err) {
+        console.error(`${logPrefix} Error writing debug file:`, err);
+      }
+    }
     
     if (rawContent.includes('```')) {
-      console.log('[DETAILS] Response contains code blocks');
+      console.log(`${logPrefix} [DETAILS] Response contains code blocks`);
       
       // Count code block markers and log their positions
       let codeBlockCount = (rawContent.match(/```/g) || []).length;
-      console.log(`[DETAILS] Found ${codeBlockCount} code block markers`);
+      console.log(`${logPrefix} [DETAILS] Found ${codeBlockCount} code block markers`);
       
       if (codeBlockCount % 2 === 0) {
-        console.log('[DETAILS] Code block markers appear to be properly paired');
+        console.log(`${logPrefix} [DETAILS] Code block markers appear to be properly paired`);
       } else {
-        console.warn('[WARNING] Odd number of code block markers - this may cause extraction issues');
+        console.warn(`${logPrefix} [WARNING] Odd number of code block markers - this may cause extraction issues`);
       }
       
       // Log first and last code block positions
       let firstPos = rawContent.indexOf('```');
       let lastPos = rawContent.lastIndexOf('```');
-      console.log(`[DETAILS] First code block marker at position ${firstPos}, last marker at position ${lastPos}`);
+      console.log(`${logPrefix} [DETAILS] First code block marker at position ${firstPos}, last marker at position ${lastPos}`);
       
       // Try to detect if content is wrapped in a code block
       if (firstPos < 20 && lastPos > rawContent.length - 20) {
-        console.log('[DETAILS] Content appears to be completely wrapped in a code block');
+        console.log(`${logPrefix} [DETAILS] Content appears to be completely wrapped in a code block`);
       }
     }
     
@@ -991,7 +1202,373 @@ async function parseJobDescriptionSection(
  * @param resumeData Parsed resume data
  * @returns Array of potential job titles
  */
-export async function getPotentialJobTitles(resumeData: ParsedResume): Promise<string[]> {
+/**
+ * Extract certifications from text using pattern matching
+ * @param text Resume text to analyze
+ * @returns Array of certification objects
+ */
+function extractCertifications(text: string): Array<{
+  name?: string;
+  title?: string;
+  issuer?: string;
+  organization?: string;
+  date?: string;
+  issueDate?: string;
+  validUntil?: string;
+  description?: string;
+}> {
+  try {
+    const certifications = [];
+    
+    // Look for a certifications section with case-insensitive match
+    const certSectionMatch = text.match(/##?\s*certification[s]?.*?(?=##|$)/si);
+    
+    if (certSectionMatch) {
+      // Extract the certifications section
+      const certSection = certSectionMatch[0];
+      
+      // Split into lines and remove empty lines
+      const lines = certSection.split('\n').map(line => line.trim()).filter(Boolean);
+      
+      let i = 0;
+      
+      // Skip section header lines
+      while (i < lines.length && (lines[i].toLowerCase().includes('certification') || lines[i].includes('##'))) {
+        i++;
+      }
+      
+      // Process lines in groups of 2-4 (cert name, issuer, date, possibly valid until)
+      while (i < lines.length) {
+        // Start a new certification
+        const certName = lines[i++];
+        
+        // If we've reached the end or another section header, break
+        if (!certName || certName.startsWith('##')) {
+          break;
+        }
+        
+        // Initialize with default empty values
+        const cert = {
+          name: certName,
+          issuer: '',
+          date: '',
+          validUntil: ''
+        };
+        
+        // Try to get issuer (should be within next 1-2 lines)
+        if (i < lines.length) {
+          // Skip any lines that look like dates for now
+          if (!isDateLine(lines[i])) {
+            cert.issuer = lines[i++];
+            cert.organization = cert.issuer; // Use both fields for compatibility
+          }
+        }
+        
+        // Try to get date information
+        if (i < lines.length) {
+          const dateLine = lines[i];
+          
+          // Check if this is a date or date range
+          if (isDateLine(dateLine)) {
+            // Handle date range (e.g., "April 2020 - Present")
+            if (dateLine.includes('-')) {
+              const [startDate, endDate] = dateLine.split('-').map(d => d.trim());
+              cert.date = startDate;
+              cert.issueDate = startDate; // Use both fields for compatibility
+              cert.validUntil = endDate;
+            } else {
+              cert.date = dateLine;
+              cert.issueDate = dateLine; // Use both fields for compatibility
+            }
+            i++; // Move to next line
+          }
+        }
+        
+        certifications.push(cert);
+        
+        // Skip any blank lines before the next cert
+        while (i < lines.length && lines[i].trim() === '') {
+          i++;
+        }
+      }
+    } else {
+      // If no explicit certifications section, look for certification keywords
+      const certKeywords = [
+        'CCNA', 'CCNP', 'CCIE', 'CompTIA', 'Network+', 'Security+', 'A+',
+        'AWS', 'Azure', 'Google Cloud', 'Certified', 'Certificate',
+        'PMP', 'ITIL', 'Scrum', 'CISSP', 'CISM', 'CISA', 'CEH'
+      ];
+      
+      // Build a regex pattern for certification keywords
+      const certRegex = new RegExp(`(${certKeywords.join('|')})([^\\n.]*?)(\\d{4}|Present)`, 'g');
+      
+      // Find all matches in the text
+      const matches = text.match(certRegex) || [];
+      
+      // Process each match
+      for (const match of matches) {
+        const certMatch = match.match(/(.*?)(\d{4}|Present)/);
+        if (certMatch) {
+          certifications.push({
+            name: certMatch[1].trim(),
+            date: certMatch[2],
+            issuer: '',  // We don't have context to determine the issuer
+            organization: ''
+          });
+        }
+      }
+    }
+    
+    return certifications;
+  } catch (error) {
+    console.error('Error extracting certifications:', error);
+    return [];
+  }
+}
+
+/**
+ * Extract training from text using pattern matching
+ * @param text Resume text to analyze
+ * @returns Array of training objects
+ */
+function extractTraining(text: string): Array<{
+  name?: string;
+  title?: string;
+  provider?: string;
+  institution?: string;
+  date?: string;
+  completionDate?: string;
+  duration?: string;
+  description?: string;
+}> {
+  try {
+    const training = [];
+    
+    // Look for a training/courses section with case-insensitive match
+    const sectionMatch = text.match(/##?\s*(training|courses|workshops|professional development).*?(?=##|$)/si);
+    
+    if (sectionMatch) {
+      // Extract the training section
+      const section = sectionMatch[0];
+      
+      // Split into lines and remove empty lines
+      const lines = section.split('\n').map(line => line.trim()).filter(Boolean);
+      
+      let i = 0;
+      
+      // Skip section header lines
+      while (i < lines.length && (lines[i].includes('TRAINING') || lines[i].includes('COURSES') || 
+                                lines[i].includes('##'))) {
+        i++;
+      }
+      
+      // Process lines in groups (name, provider, date, etc.)
+      while (i < lines.length) {
+        // Start a new training item
+        const name = lines[i++];
+        
+        // If we've reached the end or another section header, break
+        if (!name || name.startsWith('##')) {
+          break;
+        }
+        
+        // Initialize with default empty values
+        const train = {
+          name: name,
+          provider: '',
+          date: '',
+          duration: ''
+        };
+        
+        // Try to get provider/institution (should be within next 1-2 lines)
+        if (i < lines.length) {
+          // Skip any lines that look like dates for now
+          if (!isDateLine(lines[i])) {
+            train.provider = lines[i++];
+            train.institution = train.provider; // Use both fields for compatibility
+          }
+        }
+        
+        // Try to get date information
+        if (i < lines.length) {
+          const dateLine = lines[i];
+          
+          // Check if this is a date or date range
+          if (isDateLine(dateLine)) {
+            // Check if it contains a duration pattern (e.g., "3 months", "2 weeks")
+            if (dateLine.match(/\d+\s+(day|week|month|year|hour)s?/i)) {
+              train.duration = dateLine;
+            } else {
+              train.date = dateLine;
+              train.completionDate = dateLine; // Use both fields for compatibility
+            }
+            i++; // Move to next line
+          }
+        }
+        
+        training.push(train);
+        
+        // Skip any blank lines before the next item
+        while (i < lines.length && lines[i].trim() === '') {
+          i++;
+        }
+      }
+    }
+    
+    return training;
+  } catch (error) {
+    console.error('Error extracting training:', error);
+    return [];
+  }
+}
+
+/**
+ * Extract references from text using pattern matching
+ * @param text Resume text to analyze
+ * @returns Array of reference objects
+ */
+function extractReferences(text: string): Array<{
+  name?: string;
+  title?: string;
+  position?: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  relationship?: string;
+}> {
+  try {
+    const references = [];
+    
+    // Look for a references section with case-insensitive match
+    const sectionMatch = text.match(/##?\s*(references|professional references).*?(?=##|$)/si);
+    
+    if (sectionMatch) {
+      // Extract the references section
+      const section = sectionMatch[0];
+      
+      // Split into lines and remove empty lines
+      const lines = section.split('\n').map(line => line.trim()).filter(Boolean);
+      
+      let i = 0;
+      
+      // Skip section header lines
+      while (i < lines.length && (lines[i].includes('REFERENCE') || lines[i].includes('##'))) {
+        i++;
+      }
+      
+      // Process lines in groups (name, title, company, contact info)
+      while (i < lines.length) {
+        // Start a new reference
+        const name = lines[i++];
+        
+        // If we've reached the end or another section header, break
+        if (!name || name.startsWith('##')) {
+          break;
+        }
+        
+        // Initialize with default empty values
+        const ref = {
+          name: name,
+          title: '',
+          position: '',
+          company: '',
+          email: '',
+          phone: '',
+          relationship: ''
+        };
+        
+        // Process the next few lines looking for title/position/company
+        let linesParsed = 0;
+        while (i < lines.length && linesParsed < 4) {
+          const line = lines[i++];
+          linesParsed++;
+          
+          // If we've reached another section header, break
+          if (line.startsWith('##')) {
+            i--; // back up one line
+            break;
+          }
+          
+          // Check for email pattern
+          const emailMatch = line.match(/[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+/i);
+          if (emailMatch) {
+            ref.email = emailMatch[0];
+            continue;
+          }
+          
+          // Check for phone pattern
+          const phoneMatch = line.match(/(\+?1?\s*\(?[0-9]{3}\)?[-. ][0-9]{3}[-. ][0-9]{4})/);
+          if (phoneMatch) {
+            ref.phone = phoneMatch[0];
+            continue;
+          }
+          
+          // Check for relationship indicators
+          if (line.toLowerCase().includes('relation') || 
+              line.toLowerCase().includes('supervisor') ||
+              line.toLowerCase().includes('manager') ||
+              line.toLowerCase().includes('colleague')) {
+            ref.relationship = line;
+            continue;
+          }
+          
+          // If we haven't matched anything specific, and title/position is empty, it's probably the title
+          if (!ref.title) {
+            ref.title = line;
+            ref.position = line; // Use both fields for compatibility
+            continue;
+          }
+          
+          // If title is filled but company is empty, it's probably the company
+          if (ref.title && !ref.company) {
+            ref.company = line;
+            continue;
+          }
+        }
+        
+        references.push(ref);
+        
+        // Skip any blank lines before the next reference
+        while (i < lines.length && lines[i].trim() === '') {
+          i++;
+        }
+      }
+    }
+    
+    return references;
+  } catch (error) {
+    console.error('Error extracting references:', error);
+    return [];
+  }
+}
+
+/**
+ * Helper function to determine if a line represents a date
+ * @param line Text line to check
+ * @returns True if the line appears to be a date
+ */
+function isDateLine(line: string): boolean {
+  // Check if the line contains a year
+  const hasYear = /\b(19|20)\d{2}\b/.test(line);
+  
+  // Check if it contains month names
+  const hasMonth = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\b/i.test(line);
+  
+  // Check for present/current
+  const hasPresent = /\b(Present|Current)\b/i.test(line);
+  
+  // Date ranges often have hyphens
+  const hasRange = line.includes('-');
+  
+  return (hasYear || hasMonth || hasPresent) && line.length < 30;
+}
+
+/**
+ * Get potential job titles based on resume data
+ * @param resumeData Parsed resume data
+ * @returns Array of potential job titles
+ */
+export async function getPotentialJobTitles(resumeData: ParsedResume, debug: boolean = false): Promise<string[]> {
   try {
     // Limit the amount of experience data to avoid token issues
     let limitedExperience = [...resumeData.experience];
@@ -1053,8 +1630,24 @@ export async function getPotentialJobTitles(resumeData: ParsedResume): Promise<s
     }
     
     // Log the raw response for debugging
-    console.log('Raw job titles response (first 100 chars):', 
+    const logPrefix = debug ? '[JOB_TITLES_DEBUG]' : '';
+    console.log(`${logPrefix} Raw job titles response (first 100 chars):`, 
       response.choices[0].message.content.substring(0, 100) + '...');
+      
+    // Debug: Write full response to file if debug mode is enabled
+    if (debug && typeof process !== 'undefined') {
+      try {
+        // Use dynamic import for ESM compatibility
+        import('fs').then(fs => {
+          fs.writeFileSync('./job_titles_response.debug.json', response.choices[0].message.content);
+          console.log(`${logPrefix} Full AI response written to job_titles_response.debug.json`);
+        }).catch(err => {
+          console.error(`${logPrefix} Failed to import fs module:`, err);
+        });
+      } catch (err) {
+        console.error(`${logPrefix} Error writing debug file:`, err);
+      }
+    }
     
     // Pre-process the content to handle markdown and other formatting issues
     let content = response.choices[0].message.content.trim();

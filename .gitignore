@@ -27,6 +27,16 @@ yarn-error.log*
 
 # local env files
 .env*.local
+.env
+.env.development
+.env.production
+.env.test
+
+# Credentials
+google_document_ai.json
+credentials/
+*.key
+*.pem
 
 # vercel
 .vercel

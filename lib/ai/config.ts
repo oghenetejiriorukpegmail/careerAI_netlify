@@ -1,26 +1,32 @@
 // AI model configuration
 export const AI_CONFIG = {
+  // OpenRouter configuration
+  openrouter: {
+    apiKey: process.env.OPENROUTER_API_KEY || '', // Set OPENROUTER_API_KEY in your environment variables
+    model: 'anthropic/claude-3.7-sonnet',
+    baseUrl: 'https://openrouter.ai/api/v1'
+  },
   // Requesty Router configuration
   requesty: {
-    apiKey: process.env.ROUTER_API_KEY || 'sk-+mZ784BeQxS6EXfmzWchAIB9fmvIV6NGkwF9VNfsuONF/NtjFuGheUXQK+YU2D/npXfNCKYcqVyObin/PJJhkeZdvGVMDDWFZ/Yzi3/NsAM=',
+    apiKey: process.env.ROUTER_API_KEY || '', // Set ROUTER_API_KEY in your environment variables
     model: 'anthropic/claude-3-7-sonnet-20250219',
     baseUrl: 'https://router.requesty.ai/v1'
   },
   // OpenAI configuration (keeping for backwards compatibility)
   openai: {
-    apiKey: process.env.OPENAI_API_KEY || 'sk-+mZ784BeQxS6EXfmzWchAIB9fmvIV6NGkwF9VNfsuONF/NtjFuGheUXQK+YU2D/npXfNCKYcqVyObin/PJJhkeZdvGVMDDWFZ/Yzi3/NsAM=',
+    apiKey: process.env.OPENAI_API_KEY || '', // Set OPENAI_API_KEY in your environment variables
     model: 'gpt-4'
   },
   // Keep Gemini reference for backward compatibility
   gemini: {
-    apiKey: process.env.GEMINI_API_KEY || 'AIzaSyAnYDT0bXchBFv7POL72UaDpsIJFOAu9Ic',
+    apiKey: process.env.GEMINI_API_KEY || '', // Set GEMINI_API_KEY in your environment variables
     model: 'gemini-pro'
   },
   // Vertex AI configuration
   vertex: {
-    apiKey: process.env.VERTEX_API_KEY || process.env.GOOGLE_API_KEY || 'AIzaSyA1UcUNKz2v9mBzKfLay3A3TydQZiziMZ8',
+    apiKey: process.env.VERTEX_API_KEY || process.env.GOOGLE_API_KEY || '', // Set VERTEX_API_KEY or GOOGLE_API_KEY in your environment variables
     model: 'vertex/anthropic/claude-3-7-sonnet-latest@us-east5',
-    projectId: process.env.GOOGLE_PROJECT_ID || '498473173877',
+    projectId: process.env.GOOGLE_PROJECT_ID || '', // Set GOOGLE_PROJECT_ID in your environment variables
     location: 'us-east5'
   }
 };
@@ -989,6 +995,299 @@ function normalizeJson(jsonString) {
   }
 }
 
+// Function to query OpenRouter API
+export async function queryOpenRouter(prompt: string, systemPrompt?: string) {
+  try {
+    console.log(`Calling OpenRouter API with model: ${AI_CONFIG.openrouter.model}`);
+    
+    // Apply token limiting for the model
+    const MAX_TOKENS = 30000;
+    
+    // Check if prompt needs truncation
+    const originalLength = prompt.length;
+    const truncatedPrompt = truncateToTokenLimit(prompt, MAX_TOKENS);
+    
+    if (truncatedPrompt.length < originalLength) {
+      console.log(`Truncated prompt from ${originalLength} to ${truncatedPrompt.length} characters`);
+    }
+    
+    // Prepare the request body
+    const messages = [];
+    
+    // Add system prompt if provided
+    if (systemPrompt) {
+      messages.push({
+        role: 'system',
+        content: systemPrompt
+      });
+    }
+    
+    // Add user prompt
+    messages.push({
+      role: 'user',
+      content: truncatedPrompt
+    });
+    
+    // Make the request to OpenRouter API
+    const response = await fetch(`${AI_CONFIG.openrouter.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${AI_CONFIG.openrouter.apiKey}`,
+        'HTTP-Referer': 'https://careeraisystem.com',
+        'X-Title': 'CareerAI System'
+      },
+      body: JSON.stringify({
+        model: AI_CONFIG.openrouter.model,
+        messages: messages,
+        temperature: 0.2,
+        max_tokens: 8192,
+        response_format: { type: "json_object" } // Explicitly request JSON to avoid code blocks
+      }),
+      // Use a longer timeout for OpenRouter to handle complex prompts
+      signal: AbortSignal.timeout(180000) // 3 minute timeout
+    });
+    
+    // Check for HTTP errors
+    if (!response.ok) {
+      let errorMessage = `Status ${response.status}: ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = JSON.stringify(errorData);
+        console.error('OpenRouter API error:', errorData);
+      } catch (parseError) {
+        console.error('Failed to parse OpenRouter error response:', parseError);
+      }
+      throw new Error(`OpenRouter API error: ${errorMessage}`);
+    }
+    
+    // Parse response JSON
+    const data = await response.json();
+    
+    // Log the raw response for debugging
+    if (data.choices && data.choices[0] && data.choices[0].message) {
+      let rawContent = data.choices[0].message.content;
+      console.log(`[RAW OPENROUTER RESPONSE] First 500 chars: ${rawContent.substring(0, 500)}...`);
+      
+      // Write complete response to log file
+      if (typeof process !== 'undefined') {
+        try {
+          // Dynamic import for ESM compatibility
+          import('fs').then(fs => {
+            // Create logs directory if it doesn't exist
+            if (!fs.existsSync('./logs')) {
+              fs.mkdirSync('./logs', { recursive: true });
+            }
+            
+            // Create a timestamped filename for the log
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const logFilePath = `./logs/openrouter_response_${timestamp}.txt`;
+            
+            // Write the complete text to the log file
+            fs.writeFileSync(logFilePath, rawContent);
+            console.log(`Complete OpenRouter response saved to ${logFilePath}`);
+            
+            // Also write raw API response JSON for reference
+            fs.writeFileSync(`./logs/openrouter_raw_${timestamp}.json`, JSON.stringify(data, null, 2));
+          }).catch(err => {
+            console.error('Failed to import fs module:', err);
+          });
+        } catch (err) {
+          console.error('Error writing OpenRouter log file:', err);
+        }
+      }
+      
+      // Clean up code blocks from responses for easier JSON parsing
+      if (rawContent.includes('```')) {
+        console.log('[OPENROUTER] Response contains code blocks - cleaning up...');
+        
+        // More thorough code block cleanup with regex
+        if (rawContent.includes('```')) {
+          console.log('[OPENROUTER] Cleaning up markdown code blocks');
+          rawContent = rawContent
+            .replace(/^```json\s*/g, '')   // Remove opening ```json
+            .replace(/^```\s*/g, '')       // Remove opening ``` without json
+            .replace(/\s*```$/g, '')       // Remove closing ```
+            .replace(/```/g, '')          // Remove any remaining code block markers
+            .trim();
+          console.log('[OPENROUTER] Removed code block markers');
+        }
+      }
+      
+      // Normalize whitespace in JSON-like responses (Claude sometimes adds extra spaces)
+      if (rawContent.trim().startsWith('{') && rawContent.trim().endsWith('}')) {
+        console.log('[OPENROUTER] Normalizing whitespace in JSON response');
+        try {
+          // First try to parse it directly
+          JSON.parse(rawContent);
+        } catch (jsonError) {
+          // If parsing fails, try to normalize whitespace
+          try {
+            // Use our helper function to normalize JSON with whitespace issues
+            console.log('[OPENROUTER] Attempting to normalize JSON with whitespace issues');
+            const normalized = normalizeJson(rawContent);
+            
+            // Check if normalization was successful
+            try {
+              JSON.parse(normalized);
+              console.log('[OPENROUTER] JSON normalization successful');
+              rawContent = normalized; // Update the content with normalized version
+            } catch (parseError) {
+              console.warn('[OPENROUTER] JSON normalization did not result in valid JSON');
+              // Keep original rawContent
+            }
+          } catch (normalizeError) {
+            console.warn('[OPENROUTER] Failed to normalize JSON whitespace:', normalizeError);
+          }
+        }
+      }
+      
+      // Fix potentially malformed JSON
+      if (rawContent.startsWith('{') && (rawContent.includes('"contactInfo"') || rawContent.includes('"jobTitle"'))) {
+        console.log('[OPENROUTER] Attempting to fix potentially malformed JSON');
+        
+        try {
+          // Try to parse as-is first
+          JSON.parse(rawContent);
+          console.log('[OPENROUTER] JSON appears valid');
+        } catch (jsonError) {
+          console.warn('[OPENROUTER] JSON parsing failed, applying fixes:', jsonError.message);
+          
+          // For extreme cases like very large documents, try extracting just the most crucial info
+          if (rawContent.length > 10000) {
+            console.log('[OPENROUTER] Large document detected, applying more aggressive JSON extraction');
+            
+            try {
+              // First attempt - extract only basic fields
+              const contactInfoMatch = rawContent.match(/"contactInfo"\s*:\s*{([^}]+)}/);
+              const contactInfo = contactInfoMatch ? contactInfoMatch[0] : ''; 
+              
+              const summaryMatch = rawContent.match(/"summary"\s*:\s*"[^"]+"/);
+              const summary = summaryMatch ? summaryMatch[0] : '';
+              
+              // Extract just the first few experiences
+              let experienceMatch = rawContent.match(/"experience"\s*:\s*\[\s*{[^{]*?}\s*,\s*{[^{]*?}\s*,\s*{[^{]*?}\s*\]/);
+              if (!experienceMatch) {
+                // Try with fewer items
+                experienceMatch = rawContent.match(/"experience"\s*:\s*\[\s*{[^{]*?}\s*,\s*{[^{]*?}\s*\]/);
+                if (!experienceMatch) {
+                  // Try with just one item
+                  experienceMatch = rawContent.match(/"experience"\s*:\s*\[\s*{[^{]*?}\s*\]/);
+                }
+              }
+              const experience = experienceMatch ? experienceMatch[0] : '"experience": []';
+              
+              // Extract education
+              let educationMatch = rawContent.match(/"education"\s*:\s*\[[^\]]*?\]/);
+              const education = educationMatch ? educationMatch[0] : '"education": []';
+              
+              // Extract skills
+              let skillsMatch = rawContent.match(/"skills"\s*:\s*\[[^\]]*?\]/);
+              const skills = skillsMatch ? skillsMatch[0] : '"skills": []';
+              
+              // Build a simplified JSON with only the key parts
+              const truncatedJson = 
+                '{\n' +
+                '  ' + contactInfo + ',\n' +
+                '  ' + summary + ',\n' +
+                '  ' + experience + ',\n' +
+                '  ' + education + ',\n' +
+                '  ' + skills + '\n' +
+                '}';
+              
+              // Try to parse the simplified JSON
+              try {
+                // Fix any trailing/missing commas
+                const fixedJson = truncatedJson
+                  .replace(/,\s*\n\s*}/g, '\n}')  // Remove comma before closing brace
+                  .replace(/"\s*,\s*"/g, '", "')  // Fix spacing around commas
+                  .replace(/}\s*,\s*{/g, '}, {'); // Fix spacing in arrays
+                  
+                JSON.parse(fixedJson);
+                rawContent = fixedJson;
+                console.log('[OPENROUTER] Successfully extracted and built simplified JSON');
+              } catch (simplifyError) {
+                console.warn('[OPENROUTER] Simplified JSON parsing failed:', simplifyError.message);
+                
+                // If that fails, use super aggressive approach for just contact info
+                try {
+                  // Just extract name, email, phone, and summary
+                  const nameMatch = rawContent.match(/"fullName"\s*:\s*"([^"]*)"/);
+                  const emailMatch = rawContent.match(/"email"\s*:\s*"([^"]*)"/);
+                  const phoneMatch = rawContent.match(/"phone"\s*:\s*"([^"]*)"/);
+                  
+                  // Extract summary text - handle the format "summary": "text"
+                  let summaryText = '';
+                  if (summaryMatch) {
+                    const summaryExtraction = summaryMatch[0].match(/"summary"\s*:\s*"([^"]*)"/);
+                    summaryText = summaryExtraction ? summaryExtraction[1] : '';
+                  }
+                  
+                  const minimumJson = `{
+                    "contactInfo": {
+                      "fullName": "${nameMatch ? nameMatch[1] : ''}",
+                      "email": "${emailMatch ? emailMatch[1] : ''}",
+                      "phone": "${phoneMatch ? phoneMatch[1] : ''}"
+                    },
+                    "summary": "${summaryText}",
+                    "experience": [],
+                    "education": [],
+                    "skills": [],
+                    "certifications": []
+                  }`;
+                  
+                  JSON.parse(minimumJson);
+                  rawContent = minimumJson;
+                  console.log('[OPENROUTER] Built minimum viable JSON with just contact info');
+                } catch (minimalError) {
+                  console.warn('[OPENROUTER] Even minimal JSON failed:', minimalError);
+                }
+              }
+            } catch (extractionError) {
+              console.error('[OPENROUTER] JSON extraction approach failed:', extractionError);
+            }
+          } else {
+            // Standard fixes for smaller JSON
+            const originalContent = rawContent;
+            rawContent = rawContent
+              // Fix trailing commas in arrays and objects
+              .replace(/,(\s*[\]}])/g, '$1')
+              // Fix missing commas between elements
+              .replace(/}(\s*){/g, '},\n$1{')
+              // Fix unescaped quotes by using controlled replacements
+              .replace(/\\"/g, '____ESCAPED_QUOTE____')
+              .replace(/"/g, '____QUOTE____')
+              .replace(/____ESCAPED_QUOTE____/g, '\\"')
+              .replace(/____QUOTE____/g, '"')
+              // Fix unterminated strings by adding a quote at the end
+              .replace(/"([^"]*)$/, '"$1"')
+              // Fix truncated JSON by adding closing brackets if needed
+              .replace(/([^}])$/, '$1}');
+              
+            // Check if the JSON is now valid
+            try {
+              JSON.parse(rawContent);
+              console.log('[OPENROUTER] Successfully fixed malformed JSON');
+            } catch (fixError) {
+              console.warn('[OPENROUTER] JSON fixing failed, reverting to original content:', fixError.message);
+              rawContent = originalContent;
+            }
+          }
+        }
+      }
+      
+      // Update the content in the response
+      data.choices[0].message.content = rawContent;
+      console.log('[OPENROUTER] Processed and cleaned response content');
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('Error calling OpenRouter:', error);
+    throw error;
+  }
+}
+
 // Function to handle AI requests with prioritization of different providers
 // Load user settings or use defaults
 async function loadUserSettings() {
@@ -1036,10 +1335,10 @@ async function loadUserSettings() {
       // Server side - use cached settings if available
       return global.userSettings;
     } else {
-      // Server side - always use Claude 3.7 Sonnet via Requesty
+      // Server side - use Claude 3.7 Sonnet via OpenRouter
       return {
-        aiProvider: 'requesty',
-        aiModel: 'anthropic/claude-3-7-sonnet-20250219',
+        aiProvider: 'openrouter',
+        aiModel: 'anthropic/claude-3.7-sonnet',
         documentAiOnly: true,
         enableLogging: true
       };
@@ -1050,8 +1349,8 @@ async function loadUserSettings() {
   
   // Default settings if loading fails
   return {
-    aiProvider: 'requesty',
-    aiModel: 'vertex/anthropic/claude-3-7-sonnet-20250219@us-east5',
+    aiProvider: 'openrouter',
+    aiModel: 'anthropic/claude-3.7-sonnet',
     documentAiOnly: true,
     enableLogging: true
   };
@@ -1061,9 +1360,9 @@ export async function queryAI(prompt: string, systemPrompt?: string) {
   // Load user settings
   const settings = await loadUserSettings();
   
-  // Handle provider and model from settings - always default to Claude 3.7 Sonnet
-  const provider = settings.aiProvider || 'requesty';
-  const model = settings.aiModel || 'anthropic/claude-3-7-sonnet-20250219';
+  // Handle provider and model from settings - always default to Claude 3.7 Sonnet with OpenRouter
+  const provider = settings.aiProvider || 'openrouter';
+  const model = settings.aiModel || 'anthropic/claude-3.7-sonnet';
   
   console.log(`Using AI provider from settings: ${provider}`);
   console.log(`Using AI model from settings: ${model}`);
@@ -1075,8 +1374,7 @@ export async function queryAI(prompt: string, systemPrompt?: string) {
       break;
     case 'openrouter':
       // Configure for OpenRouter
-      // Would need to add OpenRouter to AI_CONFIG
-      AI_CONFIG.openai.model = model; // Use OpenAI format for now
+      AI_CONFIG.openrouter.model = model;
       break;
     case 'anthropic':
       // Configure for direct Anthropic API
@@ -1104,8 +1402,7 @@ export async function queryAI(prompt: string, systemPrompt?: string) {
       return await queryRequesty(prompt, systemPrompt);
     case 'openrouter':
       console.log(`Using OpenRouter API with model ${model}`);
-      // Would need to implement queryOpenRouter function
-      return await queryOpenAI(prompt, systemPrompt);
+      return await queryOpenRouter(prompt, systemPrompt);
     case 'anthropic':
       console.log(`Using Anthropic API directly with model ${model}`);
       // Would need to implement queryAnthropic function
