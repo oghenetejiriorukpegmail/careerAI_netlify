@@ -31,24 +31,64 @@ export const AI_CONFIG = {
   }
 };
 
-// Simple token counter function (estimates tokens based on character count)
+// Improved token counter function with better token estimation
 function estimateTokenCount(text: string): number {
-  // A very rough estimate: 1 token is approximately 4 characters in English
-  return Math.ceil(text.length / 4);
+  // Use a more accurate ratio - Claude's tokenization is closer to 3.5 chars per token for English text
+  const baseEstimate = Math.ceil(text.length / 3.5);
+  
+  // Count special characters that typically get their own tokens
+  const numPunctuation = (text.match(/[.,!?;:]/g) || []).length;
+  const numWhitespace = (text.match(/\s+/g) || []).length;
+  const numNumbers = (text.match(/\d+/g) || []).length;
+  
+  // Add adjustments for special elements that typically result in separate tokens
+  const adjustedEstimate = baseEstimate + 
+    (numPunctuation * 0.3) + // Punctuation often gets its own token
+    (numWhitespace * 0.2) + // Whitespace typically gets its own token
+    (numNumbers * 0.3);     // Numbers often tokenize differently
+  
+  // Round up to be conservative
+  return Math.ceil(adjustedEstimate);
+}
+
+// Log token usage at key points
+function logTokenUsage(source: string, text: string, additionalTokens: number = 0): void {
+  const estimatedTokens = estimateTokenCount(text);
+  const totalEstimate = estimatedTokens + additionalTokens;
+  
+  console.log(`[TOKEN USAGE] ${source}: ~${estimatedTokens} tokens (text) + ${additionalTokens} tokens (overhead) = ~${totalEstimate} tokens total`);
+  console.log(`[TOKEN USAGE] Text length: ${text.length} characters`);
+  
+  // Log warning if approaching token limits
+  if (totalEstimate > 25000) {
+    console.warn(`[TOKEN WARNING] ${source} is using ${totalEstimate} tokens, which is approaching model limits`);
+  }
 }
 
 // Function to truncate text to fit within token limits
 function truncateToTokenLimit(text: string, maxTokens: number = 30000): string {
+  // Reserve tokens for the system prompt, user prompt template, and AI response
+  const SYSTEM_PROMPT_TOKENS = 150;  // Approximate tokens for system prompt
+  const PROMPT_TEMPLATE_TOKENS = 850; // Approximate tokens for the prompt template (JSON schema, instructions)
+  const RESPONSE_RESERVED_TOKENS = 5000; // Reserve tokens for AI response
+  
+  // Calculate actual token limit for the document text
+  const textTokenLimit = maxTokens - SYSTEM_PROMPT_TOKENS - PROMPT_TEMPLATE_TOKENS - RESPONSE_RESERVED_TOKENS;
+  
+  // Estimate tokens in the provided text
   const estimatedTokens = estimateTokenCount(text);
   
-  if (estimatedTokens <= maxTokens) {
+  // Log token usage before any truncation
+  logTokenUsage("Input text", text, SYSTEM_PROMPT_TOKENS + PROMPT_TEMPLATE_TOKENS);
+  
+  if (estimatedTokens <= textTokenLimit) {
     return text; // No truncation needed
   }
   
-  console.log(`Text exceeds token limit (est. ${estimatedTokens} tokens). Truncating to ~${maxTokens} tokens.`);
+  console.log(`Text exceeds token limit (est. ${estimatedTokens} tokens vs. limit ${textTokenLimit}). Truncating...`);
   
-  // Calculate approximate character limit
-  const charLimit = maxTokens * 4;
+  // Calculate approximate character limit based on our token ratio (3.5 chars per token)
+  const charLimit = Math.floor(textTokenLimit * 3.5);
   
   // Keep first 2/3 and last 1/3 of allowed length, dropping the middle
   // This "middle-out" approach preserves the beginning and end of documents
@@ -60,11 +100,19 @@ function truncateToTokenLimit(text: string, maxTokens: number = 30000): string {
       '\n\n[...content truncated to meet token limits...]\n\n' + 
       text.substring(text.length - lastPart);
     
+    // Log token usage after truncation
+    logTokenUsage("Truncated text", truncated, SYSTEM_PROMPT_TOKENS + PROMPT_TEMPLATE_TOKENS);
+    
     return truncated;
   }
   
   // For very short limits, just truncate the end
-  return text.substring(0, charLimit) + '...';
+  const shortenedText = text.substring(0, charLimit) + '...';
+  
+  // Log token usage after truncation
+  logTokenUsage("Truncated text (short)", shortenedText, SYSTEM_PROMPT_TOKENS + PROMPT_TEMPLATE_TOKENS);
+  
+  return shortenedText;
 }
 
 
@@ -1028,6 +1076,17 @@ export async function queryOpenRouter(prompt: string, systemPrompt?: string) {
       content: truncatedPrompt
     });
     
+    // Log token usage of the prompt for debugging
+    logTokenUsage("OpenRouter prompt", truncatedPrompt, systemPrompt ? estimateTokenCount(systemPrompt) : 0);
+
+    // Add JSON formatting instructions to the system prompt if necessary
+    if (systemPrompt) {
+      if (!systemPrompt.includes("JSON") && !systemPrompt.includes("json")) {
+        console.log("Adding JSON formatting to system prompt");
+        systemPrompt += "\nIMPORTANT: Return your response as a valid JSON object without any markdown formatting or code blocks.";
+      }
+    }
+    
     // Make the request to OpenRouter API
     const response = await fetch(`${AI_CONFIG.openrouter.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -1042,7 +1101,9 @@ export async function queryOpenRouter(prompt: string, systemPrompt?: string) {
         messages: messages,
         temperature: 0.2,
         max_tokens: 8192,
-        response_format: { type: "json_object" } // Explicitly request JSON to avoid code blocks
+        response_format: { type: "json_object" }, // Explicitly request JSON to avoid code blocks
+        top_p: 0.1,                              // Lower top_p for more deterministic JSON output
+        top_k: 40,                               // Adjust top_k for more focused output
       }),
       // Use a longer timeout for OpenRouter to handle complex prompts
       signal: AbortSignal.timeout(180000) // 3 minute timeout
