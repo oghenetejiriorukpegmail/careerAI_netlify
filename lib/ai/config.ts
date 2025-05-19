@@ -682,7 +682,8 @@ export async function queryRequesty(prompt: string, systemPrompt?: string) {
       }),
       // Add timeout to prevent hanging requests with large documents
       // Increased timeout for Vertex AI models that may take longer
-      signal: AbortSignal.timeout(120000) // 120 second (2 minute) timeout
+      // Use a shorter timeout that aligns better with Requesty's internal timeout
+      signal: AbortSignal.timeout(90000) // 90 second timeout
     });
     
     // Check for HTTP errors
@@ -738,7 +739,7 @@ export async function queryRequesty(prompt: string, systemPrompt?: string) {
       if (rawContent.includes('```')) {
         console.log('[REQUESTY] Response contains code blocks - cleaning up...');
         
-        // If content starts with code block, remove the opening marker
+        // If content starts with code block, remove the opening marker and language specifier
         if (rawContent.startsWith('```')) {
           // Check for language specifier like ```json
           const afterMarker = rawContent.substring(3);
@@ -759,6 +760,34 @@ export async function queryRequesty(prompt: string, systemPrompt?: string) {
         // Remove any remaining code block markers
         rawContent = rawContent.replace(/```/g, '');
         console.log('[REQUESTY] Cleaned response of code block markers');
+      }
+      
+      // Normalize whitespace in JSON-like responses (Claude sometimes adds extra spaces)
+      if (rawContent.trim().startsWith('{') && rawContent.trim().endsWith('}')) {
+        console.log('[REQUESTY] Normalizing whitespace in JSON response');
+        try {
+          // First try to parse it directly
+          JSON.parse(rawContent);
+        } catch (jsonError) {
+          // If parsing fails, try to normalize whitespace
+          try {
+            // Use our helper function to normalize JSON with whitespace issues
+            console.log('[REQUESTY] Attempting to normalize JSON with whitespace issues');
+            const normalized = normalizeJson(rawContent);
+            
+            // Check if normalization was successful
+            try {
+              JSON.parse(normalized);
+              console.log('[REQUESTY] JSON normalization successful');
+              rawContent = normalized; // Update the content with normalized version
+            } catch (parseError) {
+              console.warn('[REQUESTY] JSON normalization did not result in valid JSON');
+              // Keep original rawContent
+            }
+          } catch (normalizeError) {
+            console.warn('[REQUESTY] Failed to normalize JSON whitespace:', normalizeError);
+          }
+        }
       }
       
       // Fix potentially malformed JSON
@@ -905,6 +934,58 @@ export async function queryRequesty(prompt: string, systemPrompt?: string) {
   } catch (error) {
     console.error('Error calling Requesty Router:', error);
     throw error;
+  }
+}
+
+// Helper function to normalize JSON with whitespace issues
+function normalizeJson(jsonString) {
+  try {
+    // Extract all string values first to protect them
+    const strings = [];
+    const stringPattern = /"([^"]*)"/g;
+    let extractedContent = jsonString.replace(stringPattern, (match, content) => {
+      strings.push(match);
+      return `"__STRING_${strings.length - 1}__"`;
+    });
+    
+    // Normalize JSON structure
+    extractedContent = extractedContent
+      .replace(/\s+/g, '') // Remove all whitespace
+      .replace(/,/g, ',') // Normalize commas
+      .replace(/:/g, ':') // Normalize colons
+      .replace(/\{/g, '{') // Normalize open braces
+      .replace(/\}/g, '}') // Normalize close braces
+      .replace(/\[/g, '[') // Normalize open brackets
+      .replace(/\]/g, ']'); // Normalize close brackets
+    
+    // Put back the original strings
+    const normalized = extractedContent.replace(/"__STRING_(\d+)__"/g, (match, index) => {
+      return strings[parseInt(index)];
+    });
+    
+    // Test if it parses correctly
+    JSON.parse(normalized);
+    return normalized;
+  } catch (normalizeError) {
+    // Try another approach - simple minification
+    try {
+      // Simply remove whitespace around punctuation
+      const minified = jsonString
+        .replace(/\s*:\s*/g, ':')  // Remove spaces around colons
+        .replace(/\s*,\s*/g, ',')  // Remove spaces around commas
+        .replace(/\s*\{\s*/g, '{') // Remove spaces around opening braces
+        .replace(/\s*\}\s*/g, '}') // Remove spaces around closing braces
+        .replace(/\s*\[\s*/g, '[') // Remove spaces around opening brackets
+        .replace(/\s*\]\s*/g, ']') // Remove spaces around closing brackets
+        .trim();
+      
+      // Test if it parses correctly
+      JSON.parse(minified);
+      return minified;
+    } catch (minifyError) {
+      // Return the original string if all normalization attempts fail
+      return jsonString;
+    }
   }
 }
 
