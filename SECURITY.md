@@ -1,20 +1,59 @@
-# Security Guidelines for CareerAI
+# Security Guidelines
 
-## Credential Management
+## Environment Variables
 
-### Environment Variables
-This project uses environment variables to manage sensitive credentials. Never hardcode API keys, tokens, or other secrets directly in the codebase.
+### Setup
+1. Copy `.env.local.example` to `.env.local`
+2. Fill in your actual API keys and secrets
+3. **Never commit `.env.local` to version control**
 
-1. Copy `.env.example` to `.env`:
-   ```
-   cp .env.example .env
-   ```
+### Required Variables
+- `NEXT_PUBLIC_SUPABASE_URL` - Your Supabase project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase anonymous key (safe for client-side)
+- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (server-side only)
 
-2. Fill in your actual credentials in the `.env` file.
+### Optional AI Provider Keys
+- `OPENROUTER_API_KEY` - OpenRouter API key
+- `ANTHROPIC_API_KEY` - Anthropic API key  
+- `OPENAI_API_KEY` - OpenAI API key
+- `GOOGLE_AI_API_KEY` - Google AI API key
+- `ROUTER_API_KEY` - Requesty Router API key
 
-3. For development, you can use `.env.local` which is automatically loaded by Next.js.
+## Security Best Practices
 
-### Google Document AI
+### API Keys
+- Use different API keys for development and production
+- Rotate API keys regularly
+- Monitor API usage and set up billing alerts
+- Never hardcode API keys in source code
+- Use environment variables for all secrets
+
+### Development
+- Run `./security-audit.sh` before committing
+- Use `./setup-env.sh` for initial environment setup
+- Keep `.env.local` in `.gitignore`
+
+### Production
+- Use secure environment variable management
+- Enable API key restrictions where possible
+- Monitor for unusual API usage patterns
+- Implement rate limiting
+
+## Security Audit
+
+Run the security audit script to check for exposed secrets:
+
+```bash
+./security-audit.sh
+```
+
+This script checks for:
+- Hardcoded API keys
+- JWT tokens
+- Committed .env files
+- Proper .gitignore configuration
+
+## Google Document AI
 
 For Google Document AI, you need a service account key:
 
@@ -44,7 +83,7 @@ When deploying:
 
 ## Reporting Security Issues
 
-If you discover a security vulnerability, please send an email to [security@example.com](mailto:security@example.com) instead of using the issue tracker.
+If you discover a security vulnerability, please report it privately to the project maintainers rather than creating a public issue.
 
 ## Security Best Practices
 

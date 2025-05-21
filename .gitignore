@@ -32,11 +32,25 @@ yarn-error.log*
 .env.production
 .env.test
 
-# Credentials
+# Credentials and secrets
 google_document_ai.json
 credentials/
 *.key
 *.pem
+*.p12
+*.jks
+*.keystore
+secrets/
+config/secrets/
+
+# Test files with potential API keys
+test-*-api-key*.js
+test-*-secret*.js
+*-with-keys.js
+
+# Logs that might contain sensitive data
+logs/
+*.log
 
 # vercel
 .vercel
