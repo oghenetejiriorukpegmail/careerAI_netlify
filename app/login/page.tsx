@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
@@ -14,19 +14,39 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
   const router = useRouter();
 
+  // Check if user is already logged in
   useEffect(() => {
-    // Check if user is already logged in
-    const checkUser = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        router.push('/dashboard');
+    const checkSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        console.log('Session check on login page:', data.session ? 'Authenticated' : 'Not authenticated');
+        
+        // If user is already logged in, redirect to dashboard
+        if (data.session) {
+          // Get the redirectTo parameter from the URL if present
+          const params = new URLSearchParams(window.location.search);
+          const redirectTo = params.get('redirectTo');
+          
+          // Use a direct manual redirect to dashboard or the requested page
+          const destination = redirectTo && !redirectTo.includes('/login') 
+            ? redirectTo 
+            : '/dashboard';
+            
+          console.log('Already authenticated, redirecting to:', destination);
+          window.location.href = destination;
+        }
+      } catch (err) {
+        console.error('Error checking session:', err);
+      } finally {
+        setPageLoading(false);
       }
     };
     
-    checkUser();
-  }, [router]);
+    checkSession();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +67,22 @@ export default function LoginPage() {
       }
 
       console.log("Login successful:", data);
-      router.push("/dashboard");
+      
+      // Get the redirectTo parameter from the URL if present
+      const params = new URLSearchParams(window.location.search);
+      const redirectTo = params.get('redirectTo');
+      
+      // Safety check to prevent redirect loops
+      const safeRedirectTo = redirectTo && 
+                            !redirectTo.includes('/login') && 
+                            !redirectTo.includes('/signup') 
+                            ? redirectTo 
+                            : '/dashboard';
+      
+      console.log('Login successful, redirecting to:', safeRedirectTo);
+      
+      // Use immediate redirect instead of setTimeout
+      window.location.href = safeRedirectTo;
     } catch (error: any) {
       console.error("Error during login:", error);
       setError(error.message || "An error occurred during login");
@@ -58,20 +93,28 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">Login</CardTitle>
-          <CardDescription>
-            Enter your email and password to access your account
-          </CardDescription>
-        </CardHeader>
-        <form onSubmit={handleLogin}>
-          <CardContent className="space-y-4">
-            {error && (
-              <div className="bg-destructive/15 text-destructive text-sm p-3 rounded-md">
-                {error}
-              </div>
-            )}
+      {pageLoading ? (
+        // Show loading indicator while checking session
+        <div className="flex flex-col items-center space-y-4">
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-muted-foreground">Checking authentication status...</p>
+          <p className="text-xs text-muted-foreground mt-2">If you're already logged in, you'll be redirected to the dashboard automatically.</p>
+        </div>
+      ) : (
+        <Card className="w-full max-w-md">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-2xl font-bold">Login</CardTitle>
+            <CardDescription>
+              Enter your email and password to access your account
+            </CardDescription>
+          </CardHeader>
+          <form onSubmit={handleLogin}>
+            <CardContent className="space-y-4">
+              {error && (
+                <div className="bg-destructive/15 text-destructive text-sm p-3 rounded-md">
+                  {error}
+                </div>
+              )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -120,6 +163,7 @@ export default function LoginPage() {
           </CardFooter>
         </form>
       </Card>
+      )}
     </div>
   );
 }

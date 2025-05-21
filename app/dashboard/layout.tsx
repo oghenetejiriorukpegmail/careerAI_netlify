@@ -20,24 +20,29 @@ export default function DashboardLayout({
         const { data, error } = await supabase.auth.getSession();
         
         if (error || !data.session) {
-          router.push("/login");
+          console.log('No session found in dashboard, redirecting to login');
+          // Use window.location for a hard redirect instead of router.push
+          window.location.href = "/login?redirectTo=" + encodeURIComponent(window.location.pathname);
           return;
         }
         
+        console.log('Session confirmed for dashboard');
         setLoading(false);
       } catch (error) {
         console.error("Error checking auth session:", error);
-        router.push("/login");
+        // Use window.location for a hard redirect
+        window.location.href = "/login";
       }
     };
 
     checkSession();
-  }, [router]);
+  }, []);
 
   const handleSignOut = async () => {
     try {
       await supabase.auth.signOut();
-      router.push("/login");
+      // Use window.location for a hard redirect
+      window.location.href = "/login";
     } catch (error) {
       console.error("Error signing out:", error);
     }
@@ -77,6 +82,9 @@ export default function DashboardLayout({
               </Link>
               <Link href="/dashboard/profile" className="transition-colors hover:text-foreground/80">
                 Profile
+              </Link>
+              <Link href="/dashboard/settings" className="transition-colors hover:text-foreground/80">
+                Settings
               </Link>
             </nav>
           </div>
