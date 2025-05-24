@@ -58,8 +58,10 @@ export async function middleware(request: NextRequest) {
                        request.nextUrl.pathname === '/favicon.ico' ||
                        request.nextUrl.pathname.match(/\.(png|jpg|jpeg|gif|svg|ico|webp)$/i);
   
+  const isNetlifyFunction = request.nextUrl.pathname.startsWith('/.netlify/functions/');
+  
   // If no session and trying to access protected route
-  if (!session && !isAuthRoute && !isPublicApiRoute && !isPublicAsset) {
+  if (!session && !isAuthRoute && !isPublicApiRoute && !isPublicAsset && !isNetlifyFunction) {
     if (isApiRoute) {
       // Return 401 for API routes
       return new NextResponse(
@@ -85,14 +87,15 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
-// Apply middleware to all paths except Next.js internals
+// Apply middleware to all paths except Next.js internals and Netlify functions
 export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
      * - _next/static (static files)
      * - _next/image (image optimization files)
+     * - .netlify/functions (Netlify Functions)
      */
-    '/((?!_next/static|_next/image).*)',
+    '/((?!_next/static|_next/image|.netlify/functions).*)',
   ],
 };
