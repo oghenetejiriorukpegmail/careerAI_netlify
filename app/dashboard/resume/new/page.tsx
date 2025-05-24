@@ -93,8 +93,8 @@ export default function UploadResumePage() {
       setAnalyzing(true);
       
       try {
-        // All-in-one endpoint that handles upload, parsing, and database insertion
-        const response = await fetch('/api/resumeupload', {
+        // Use split endpoint for better debugging and reliability
+        const response = await fetch('/api/resumeupload-split', {
           method: 'POST',
           body: formData
         });
