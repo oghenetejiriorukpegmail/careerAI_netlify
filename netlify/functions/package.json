@@ -2,7 +2,6 @@
   "name": "netlify-functions",
   "version": "1.0.0",
   "description": "Netlify Functions for CareerAI",
-  "type": "module",
   "dependencies": {
     "@netlify/functions": "^2.4.0",
     "@google-cloud/documentai": "^9.1.0",
