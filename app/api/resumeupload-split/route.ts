@@ -1,5 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Helper to get the site URL
+function getSiteUrl(request: NextRequest): string {
+  // Try various headers that might contain the URL
+  const forwardedHost = request.headers.get('x-forwarded-host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+  const host = request.headers.get('host');
+  
+  if (forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+  
+  if (host) {
+    // Check if it's localhost
+    if (host.includes('localhost') || host.includes('127.0.0.1')) {
+      return `http://${host}`;
+    }
+    return `https://${host}`;
+  }
+  
+  // Fallback to environment variable or default
+  return process.env.URL || process.env.DEPLOY_URL || 'https://eustaceai.netlify.app';
+}
+
 // Split resume upload that calls Netlify Functions sequentially
 export async function POST(request: NextRequest) {
   console.log('[RESUMEUPLOAD-SPLIT] Starting split resume upload process');
@@ -19,13 +42,18 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString('base64');
     
-    const baseUrl = process.env.URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://eustaceai.netlify.app';
+    // Get the correct base URL
+    const baseUrl = getSiteUrl(request);
+    console.log(`[RESUMEUPLOAD-SPLIT] Using base URL: ${baseUrl}`);
     
     // Step 1: Extract text using Document AI
     console.log('[RESUMEUPLOAD-SPLIT] Step 1: Calling extract-text function...');
     const extractStartTime = Date.now();
     
-    const extractResponse = await fetch(`${baseUrl}/.netlify/functions/extract-text`, {
+    const extractUrl = `${baseUrl}/.netlify/functions/extract-text`;
+    console.log(`[RESUMEUPLOAD-SPLIT] Calling: ${extractUrl}`);
+    
+    const extractResponse = await fetch(extractUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -35,12 +63,35 @@ export async function POST(request: NextRequest) {
       })
     });
     
+    console.log(`[RESUMEUPLOAD-SPLIT] Extract response status: ${extractResponse.status}`);
+    
     if (!extractResponse.ok) {
-      const error = await extractResponse.json();
-      console.error('[RESUMEUPLOAD-SPLIT] Extract text failed:', error);
+      let errorDetails;
+      const contentType = extractResponse.headers.get('content-type');
+      
+      try {
+        if (contentType && contentType.includes('application/json')) {
+          errorDetails = await extractResponse.json();
+        } else {
+          const text = await extractResponse.text();
+          errorDetails = { 
+            message: text.substring(0, 500),
+            contentType,
+            status: extractResponse.status
+          };
+        }
+      } catch (e) {
+        errorDetails = { 
+          message: 'Failed to parse error response',
+          status: extractResponse.status 
+        };
+      }
+      
+      console.error('[RESUMEUPLOAD-SPLIT] Extract text failed:', errorDetails);
       return NextResponse.json({ 
         error: 'Text extraction failed', 
-        details: error 
+        details: errorDetails,
+        functionUrl: extractUrl
       }, { status: 500 });
     }
     
@@ -55,7 +106,10 @@ export async function POST(request: NextRequest) {
     let aiSuccess = false;
     
     try {
-      const parseResponse = await fetch(`${baseUrl}/.netlify/functions/parse-resume-ai`, {
+      const parseUrl = `${baseUrl}/.netlify/functions/parse-resume-ai`;
+      console.log(`[RESUMEUPLOAD-SPLIT] Calling: ${parseUrl}`);
+      
+      const parseResponse = await fetch(parseUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -84,7 +138,10 @@ export async function POST(request: NextRequest) {
     console.log('[RESUMEUPLOAD-SPLIT] Step 3: Calling save-resume function...');
     const saveStartTime = Date.now();
     
-    const saveResponse = await fetch(`${baseUrl}/.netlify/functions/save-resume`, {
+    const saveUrl = `${baseUrl}/.netlify/functions/save-resume`;
+    console.log(`[RESUMEUPLOAD-SPLIT] Calling: ${saveUrl}`);
+    
+    const saveResponse = await fetch(saveUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
