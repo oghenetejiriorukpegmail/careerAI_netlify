@@ -442,11 +442,40 @@ export async function POST(request: NextRequest) {
     console.log(`[GOOGLE DOCUMENT AI] Extracted ${extractedText.length} characters of text`);
     console.log(`[GOOGLE DOCUMENT AI] Text preview: ${extractedText.substring(0, 200)}...`);
 
-    // Step 2: Parse the extracted text using AI
+    // Step 2: Parse the extracted text using AI with timeout protection
     console.log('[AI PARSING] Starting resume structure parsing...');
     const aiParsingStartTime = Date.now();
     
-    const structuredData = await parseResumeText(extractedText);
+    let structuredData;
+    let aiTimedOut = false;
+    
+    // Create a timeout promise (8 seconds to leave buffer for response)
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('AI_TIMEOUT')), 8000);
+    });
+    
+    try {
+      // Race between AI parsing and timeout
+      structuredData = await Promise.race([
+        parseResumeText(extractedText),
+        timeoutPromise
+      ]);
+    } catch (error: any) {
+      if (error.message === 'AI_TIMEOUT') {
+        console.log('[AI PARSING] AI parsing timed out, using basic structure');
+        aiTimedOut = true;
+        // Use basic structure with extracted text
+        structuredData = {
+          name: 'Processing...',
+          summary: extractedText.substring(0, 500),
+          raw_text: extractedText,
+          status: 'partial',
+          message: 'AI analysis is taking longer than expected. Basic text extracted successfully.'
+        };
+      } else {
+        throw error;
+      }
+    }
     
     const aiParsingEndTime = Date.now();
     const aiParsingTime = aiParsingEndTime - aiParsingStartTime;
@@ -533,17 +562,21 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: 'Resume processed and saved successfully',
+        message: aiTimedOut ? 
+          'Resume uploaded successfully. AI analysis is still processing.' : 
+          'Resume processed and saved successfully',
         uploadSuccess: true,
         parseSuccess: true,
-        aiSuccess: true,
+        aiSuccess: !aiTimedOut,
+        aiPartial: aiTimedOut,
         dbSuccess: true,
         resumeId: resumeData.id,
         filename: file.name,
         size: file.size,
         type: file.type,
         extractedText: extractedText.substring(0, 1000) + (extractedText.length > 1000 ? '...' : ''), // Return first 1000 chars
-        structuredData
+        structuredData,
+        processingStatus: aiTimedOut ? 'partial' : 'completed'
       });
 
     } catch (dbError) {
