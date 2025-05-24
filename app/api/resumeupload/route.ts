@@ -6,10 +6,23 @@ async function processDocumentWithGoogleAI(fileBuffer: ArrayBuffer, mimeType: st
     // Use dynamic import to avoid webpack issues
     const { DocumentProcessorServiceClient } = await import('@google-cloud/documentai').then(m => m.v1);
     
+    // Parse credentials from environment variable or file
+    let credentials;
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      // Check if it's a file path or JSON string
+      if (process.env.GOOGLE_APPLICATION_CREDENTIALS.startsWith('{')) {
+        // It's JSON content
+        credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+      } else {
+        // It's a file path - use keyFilename
+        credentials = { keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS };
+      }
+    } else {
+      throw new Error('Google Document AI credentials not configured');
+    }
+    
     // Initialize the client with credentials
-    const client = new DocumentProcessorServiceClient({
-      keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-    });
+    const client = new DocumentProcessorServiceClient(credentials);
 
     const projectId = process.env.GOOGLE_PROJECT_ID;
     const location = 'us'; // or your preferred location
@@ -402,25 +415,65 @@ export async function POST(request: NextRequest) {
     // Convert file to buffer
     const fileBuffer = await file.arrayBuffer();
 
-    // Step 1: Extract text using Google Document AI
-    console.log('[GOOGLE DOCUMENT AI] Starting text extraction...');
+    // Step 1: Extract text - try Google Document AI first, then fallback
+    console.log('[DOCUMENT EXTRACTION] Starting text extraction...');
     const documentAiStartTime = Date.now();
     
-    const extractedText = await processDocumentWithGoogleAI(fileBuffer, file.type);
+    let extractedText = '';
+    let extractionMethod = 'unknown';
+    
+    // Check if Google Document AI is configured
+    const isGoogleAIConfigured = process.env.GOOGLE_APPLICATION_CREDENTIALS && 
+                                 process.env.GOOGLE_PROJECT_ID && 
+                                 process.env.GOOGLE_PROCESSOR_ID;
+    
+    if (isGoogleAIConfigured) {
+      try {
+        console.log('[GOOGLE DOCUMENT AI] Attempting Google Document AI extraction...');
+        extractedText = await processDocumentWithGoogleAI(fileBuffer, file.type);
+        extractionMethod = 'google_document_ai';
+      } catch (googleAIError) {
+        console.error('[GOOGLE DOCUMENT AI] Failed:', googleAIError);
+        console.log('[DOCUMENT EXTRACTION] Falling back to basic extraction...');
+      }
+    } else {
+      console.log('[GOOGLE DOCUMENT AI] Not configured, using fallback extraction method');
+    }
+    
+    // Fallback: Use basic PDF/DOCX extraction
+    if (!extractedText || extractedText.trim().length === 0) {
+      try {
+        const { parsePdf } = await import('@/lib/documents/pdf-parser');
+        
+        if (file.type === 'application/pdf') {
+          console.log('[PDF PARSER] Using basic PDF extraction...');
+          extractedText = await parsePdf(Buffer.from(fileBuffer));
+          extractionMethod = 'pdf_parser';
+        } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+          console.log('[DOCX PARSER] Using basic DOCX extraction...');
+          const mammoth = await import('mammoth');
+          const result = await mammoth.extractRawText({ buffer: Buffer.from(fileBuffer) });
+          extractedText = result.value;
+          extractionMethod = 'mammoth_docx';
+        }
+      } catch (fallbackError) {
+        console.error('[FALLBACK EXTRACTION] Failed:', fallbackError);
+      }
+    }
     
     const documentAiEndTime = Date.now();
     const documentAiProcessingTime = documentAiEndTime - documentAiStartTime;
     
     if (!extractedText || extractedText.trim().length === 0) {
-      console.error('[GOOGLE DOCUMENT AI] No text extracted from document');
+      console.error('[DOCUMENT EXTRACTION] No text extracted from document');
       return NextResponse.json({
         error: 'No text could be extracted from the document'
       }, { status: 400 });
     }
 
-    console.log(`[GOOGLE DOCUMENT AI] Text extraction completed in ${documentAiProcessingTime}ms`);
-    console.log(`[GOOGLE DOCUMENT AI] Extracted ${extractedText.length} characters of text`);
-    console.log(`[GOOGLE DOCUMENT AI] Text preview: ${extractedText.substring(0, 200)}...`);
+    console.log(`[DOCUMENT EXTRACTION] Text extraction completed in ${documentAiProcessingTime}ms using ${extractionMethod}`);
+    console.log(`[DOCUMENT EXTRACTION] Extracted ${extractedText.length} characters of text`);
+    console.log(`[DOCUMENT EXTRACTION] Text preview: ${extractedText.substring(0, 200)}...`);
 
     // Step 2: Parse the extracted text using AI
     console.log('[AI PARSING] Starting resume structure parsing...');
