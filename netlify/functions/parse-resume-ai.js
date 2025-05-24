@@ -1,8 +1,7 @@
-import type { Handler } from "@netlify/functions";
-
 // Function 2: Parse resume text using AI
-export const handler: Handler = async (event, context) => {
+exports.handler = async (event, context) => {
   console.log('[PARSE-RESUME-AI FUNCTION] Starting AI resume parsing');
+  console.log('[PARSE-RESUME-AI FUNCTION] Method:', event.httpMethod);
   
   try {
     // Only accept POST requests
@@ -10,6 +9,7 @@ export const handler: Handler = async (event, context) => {
       console.log('[PARSE-RESUME-AI FUNCTION] Invalid method:', event.httpMethod);
       return {
         statusCode: 405,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Method not allowed' })
       };
     }
@@ -22,15 +22,20 @@ export const handler: Handler = async (event, context) => {
       console.log('[PARSE-RESUME-AI FUNCTION] Missing extracted text');
       return {
         statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Missing extractedText' })
       };
     }
 
     console.log(`[PARSE-RESUME-AI FUNCTION] Processing ${extractedText.length} characters of text`);
     
-    // Import AI modules
-    const { queryAI } = await import('../../lib/ai/config');
-    const { loadServerSettings } = await import('../../lib/ai/settings-loader');
+    // Import AI modules - using relative paths from functions directory
+    const path = require('path');
+    const projectRoot = path.join(__dirname, '..', '..');
+    
+    // Import the AI config directly
+    const { queryAI } = require(path.join(projectRoot, 'lib/ai/config'));
+    const { loadServerSettings } = require(path.join(projectRoot, 'lib/ai/settings-loader'));
     
     // Load AI settings
     const settings = loadServerSettings();
@@ -91,6 +96,7 @@ export const handler: Handler = async (event, context) => {
       
       return {
         statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           success: true,
           parsedData,
@@ -100,11 +106,12 @@ export const handler: Handler = async (event, context) => {
         })
       };
       
-    } catch (error: any) {
+    } catch (error) {
       if (error.message === 'AI_TIMEOUT') {
         console.log('[PARSE-RESUME-AI FUNCTION] AI processing timed out');
         return {
           statusCode: 200,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             success: false,
             timeout: true,
@@ -124,9 +131,10 @@ export const handler: Handler = async (event, context) => {
     console.error('[PARSE-RESUME-AI FUNCTION] Error:', error);
     return {
       statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         error: 'AI parsing failed',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error.message || 'Unknown error'
       })
     };
   }

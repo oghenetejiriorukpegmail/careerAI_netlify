@@ -1,8 +1,7 @@
-import type { Handler } from "@netlify/functions";
-
 // Function 1: Extract text from document using Google Document AI
-export const handler: Handler = async (event, context) => {
+exports.handler = async (event, context) => {
   console.log('[EXTRACT-TEXT FUNCTION] Starting document text extraction');
+  console.log('[EXTRACT-TEXT FUNCTION] Method:', event.httpMethod);
   
   try {
     // Only accept POST requests
@@ -10,6 +9,7 @@ export const handler: Handler = async (event, context) => {
       console.log('[EXTRACT-TEXT FUNCTION] Invalid method:', event.httpMethod);
       return {
         statusCode: 405,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Method not allowed' })
       };
     }
@@ -22,6 +22,7 @@ export const handler: Handler = async (event, context) => {
       console.log('[EXTRACT-TEXT FUNCTION] Missing required fields');
       return {
         statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Missing fileContent or mimeType' })
       };
     }
@@ -32,7 +33,7 @@ export const handler: Handler = async (event, context) => {
     const { DocumentProcessorServiceClient } = await import('@google-cloud/documentai').then(m => m.v1);
     
     // Parse credentials
-    let clientOptions: any = {};
+    let clientOptions = {};
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
       try {
         const creds = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS);
@@ -52,6 +53,7 @@ export const handler: Handler = async (event, context) => {
       console.error('[EXTRACT-TEXT FUNCTION] No Google credentials found');
       return {
         statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Google Document AI not configured' })
       };
     }
@@ -65,6 +67,7 @@ export const handler: Handler = async (event, context) => {
       console.error('[EXTRACT-TEXT FUNCTION] Missing project ID or processor ID');
       return {
         statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Google Document AI configuration incomplete' })
       };
     }
@@ -93,6 +96,7 @@ export const handler: Handler = async (event, context) => {
     // Return extracted text
     return {
       statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         success: true,
         extractedText,
@@ -106,9 +110,10 @@ export const handler: Handler = async (event, context) => {
     console.error('[EXTRACT-TEXT FUNCTION] Error:', error);
     return {
       statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         error: 'Text extraction failed',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error.message || 'Unknown error'
       })
     };
   }
