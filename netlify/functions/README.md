@@ -1,37 +1,107 @@
 # Netlify Functions
 
-This directory is reserved for custom Netlify Functions. 
+This directory contains actual Netlify Functions that appear in the Netlify dashboard.
 
-## Current Setup
+## Function Types
 
-For this Next.js application, API routes are automatically converted to Netlify Functions by the `@netlify/plugin-nextjs` plugin. 
+### 1. Background Functions (15-minute timeout)
+Located in `netlify/functions/`:
 
-### API Routes Configuration:
+- **process-resume-background.ts** - Processes resumes with Google Document AI
+  - Endpoint: `/.netlify/functions/process-resume-background`
+  - Timeout: 15 minutes
+  - Use for: Large PDF/DOCX files that need extensive AI processing
 
-1. **Standard Functions** (Node.js runtime):
-   - `/api/resumeupload` - Document processing with Google Document AI
-   - `/api/generate-resume` - AI-powered resume generation
-   - `/api/generate-cover-letter` - AI-powered cover letter generation
-   - `/api/documents/parse` - Document parsing
-   - `/api/jobs/match` - Job matching algorithm
-   - All other API routes that require database access
+- **generate-documents-background.ts** - Generates resumes and cover letters
+  - Endpoint: `/.netlify/functions/generate-documents-background`
+  - Timeout: 15 minutes
+  - Use for: Complex document generation with multiple AI calls
 
-2. **Edge Functions** (Deno runtime):
-   - `/api/auth/session` - Session validation (marked with `export const runtime = 'edge'`)
-   - `/api/health` - Health check endpoint
+### 2. Standard Functions
+- **health-check.ts** - Simple health check
+  - Endpoint: `/.netlify/functions/health-check`
+  - Timeout: 10 seconds
+  - Use for: Quick status checks
 
-### Function Timeouts:
+### 3. Scheduled Functions
+- **cleanup-old-data.ts** - Runs daily at midnight UTC
+  - Cleans up old failed resumes and draft applications
+  - Runs automatically, no endpoint needed
 
-- AI-heavy operations: 10 seconds (maximum for free tier)
-- Standard operations: Default timeout
+### 4. Edge Functions (Deno runtime)
+Located in `netlify/edge-functions/`:
 
-### Environment Variables:
+- **auth-check.ts** - Fast authentication check
+  - Endpoint: `/api/edge/auth-check`
+  - Runs at edge locations for minimal latency
 
-All environment variables set in Netlify dashboard are automatically available to functions.
+## Usage Examples
 
-### Optimization Tips:
+### From Frontend:
+```typescript
+import { callNetlifyFunction, callBackgroundFunction } from '@/lib/netlify-functions';
 
-1. Use Edge Runtime (`export const runtime = 'edge'`) for lightweight operations
-2. Keep function bundles small by importing only necessary modules
-3. Use dynamic imports for heavy libraries
-4. Cache responses where appropriate
+// Quick function call
+const health = await callNetlifyFunction('health-check');
+
+// Background function for heavy processing
+const result = await callBackgroundFunction('process-resume-background', {
+  fileBuffer: base64FileContent,
+  mimeType: 'application/pdf',
+  userId: 'user123',
+  fileName: 'resume.pdf'
+});
+```
+
+### From API Routes:
+```typescript
+// Trigger background processing
+const response = await fetch(`${process.env.URL}/.netlify/functions/process-resume-background`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data)
+});
+```
+
+## Environment Variables
+
+All functions have access to environment variables set in Netlify dashboard:
+- `GOOGLE_APPLICATION_CREDENTIALS` - Google Document AI credentials
+- `OPENROUTER_API_KEY` - AI provider key
+- `SUPABASE_*` - Database credentials
+
+## Monitoring
+
+View function logs in Netlify dashboard:
+1. Go to Functions tab
+2. Click on function name
+3. View real-time logs and metrics
+
+## Best Practices
+
+1. **Use Background Functions for**:
+   - Document processing > 10 seconds
+   - Multiple AI API calls
+   - Large file processing
+   - Batch operations
+
+2. **Use Edge Functions for**:
+   - Authentication checks
+   - Simple validations
+   - Redirects and rewrites
+   - Geolocation-based logic
+
+3. **Use Standard Functions for**:
+   - Quick database queries
+   - Simple API calls
+   - Webhook handlers
+
+4. **Error Handling**:
+   - Always return proper status codes
+   - Include error messages in response
+   - Log errors for debugging
+
+5. **Performance**:
+   - Use dynamic imports for heavy libraries
+   - Cache responses when possible
+   - Minimize cold starts with proper bundling

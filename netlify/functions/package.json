@@ -1,0 +1,14 @@
+{
+  "name": "netlify-functions",
+  "version": "1.0.0",
+  "description": "Netlify Functions for CareerAI",
+  "type": "module",
+  "dependencies": {
+    "@netlify/functions": "^2.4.0",
+    "@google-cloud/documentai": "^9.1.0",
+    "@supabase/supabase-js": "^2.39.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}
