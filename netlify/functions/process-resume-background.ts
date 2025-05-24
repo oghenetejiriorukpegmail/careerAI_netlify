@@ -1,5 +1,4 @@
 import type { Config, Context } from "@netlify/functions";
-import { DocumentProcessorServiceClient } from '@google-cloud/documentai';
 
 // Background function for resume processing - can run up to 15 minutes
 export default async (req: Request, context: Context) => {
@@ -51,6 +50,9 @@ export default async (req: Request, context: Context) => {
 };
 
 async function processDocumentWithGoogleAI(fileBuffer: Buffer, mimeType: string) {
+  // Dynamic import to avoid bundling issues
+  const { DocumentProcessorServiceClient } = await import('@google-cloud/documentai').then(m => m.v1);
+  
   // Parse credentials from environment variable
   let clientOptions: any = {};
   
