@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Use Edge Runtime for minimal latency
-export const runtime = 'edge';
-
 export async function GET(request: NextRequest) {
   return NextResponse.json({
     status: 'healthy',

@@ -18,10 +18,6 @@
   node_bundler = "esbuild"
   included_files = ["node_modules/@google-cloud/**", "lib/**", ".env*"]
 
-# Edge Functions
-[[edge_functions]]
-  path = "/api/edge/auth-check"
-  function = "auth-check"
 
 # Headers for security
 [[headers]]

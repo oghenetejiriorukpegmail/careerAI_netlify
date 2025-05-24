@@ -35,24 +35,6 @@ export async function callBackgroundFunction(functionName: string, data: any) {
   };
 }
 
-/**
- * Call an Edge Function for fast operations
- */
-export async function callEdgeFunction(path: string, options?: RequestInit) {
-  const response = await fetch(`/api/edge/${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Edge function ${path} failed`);
-  }
-
-  return response.json();
-}
 
 /**
  * Example usage in components:
@@ -66,6 +48,4 @@ export async function callEdgeFunction(path: string, options?: RequestInit) {
  *   userId: user.id
  * });
  * 
- * // For edge operations
- * const authStatus = await callEdgeFunction('auth-check');
  */
