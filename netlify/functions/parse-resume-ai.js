@@ -29,17 +29,21 @@ exports.handler = async (event, context) => {
 
     console.log(`[PARSE-RESUME-AI FUNCTION] Processing ${extractedText.length} characters of text`);
     
-    // Import AI modules - using relative paths from functions directory
-    const path = require('path');
-    const projectRoot = path.join(__dirname, '..', '..');
+    // Get AI configuration from environment variables
+    const openrouterApiKey = process.env.OPENROUTER_API_KEY;
+    const aiProvider = process.env.AI_PROVIDER || 'openrouter';
+    const aiModel = process.env.AI_MODEL || 'qwen/qwq-32b-preview';
     
-    // Import the AI config directly
-    const { queryAI } = require(path.join(projectRoot, 'lib/ai/config'));
-    const { loadServerSettings } = require(path.join(projectRoot, 'lib/ai/settings-loader'));
+    if (!openrouterApiKey) {
+      console.error('[PARSE-RESUME-AI FUNCTION] Missing OPENROUTER_API_KEY');
+      return {
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'AI service not configured' })
+      };
+    }
     
-    // Load AI settings
-    const settings = loadServerSettings();
-    console.log(`[PARSE-RESUME-AI FUNCTION] Using AI provider: ${settings.aiProvider}, model: ${settings.aiModel}`);
+    console.log(`[PARSE-RESUME-AI FUNCTION] Using AI provider: ${aiProvider}, model: ${aiModel}`);
     
     // Define the resume parsing prompt
     const systemPrompt = `You are a resume parsing expert. Extract ALL structured information from the resume text and return it as JSON.
@@ -63,16 +67,31 @@ exports.handler = async (event, context) => {
     const startTime = Date.now();
     
     try {
-      // Call AI with timeout protection (8 seconds)
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('AI_TIMEOUT')), 8000)
-      );
+      // Make direct HTTP request to OpenRouter
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openrouterApiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.SITE_URL || 'https://careerai.netlify.app',
+          'X-Title': 'CareerAI Resume Parser'
+        },
+        body: JSON.stringify({
+          model: aiModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 2000
+        })
+      });
       
-      const aiResponse = await Promise.race([
-        queryAI(userPrompt, systemPrompt),
-        timeoutPromise
-      ]);
+      if (!response.ok) {
+        throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}`);
+      }
       
+      const aiResponse = await response.json();
       const processingTime = Date.now() - startTime;
       console.log(`[PARSE-RESUME-AI FUNCTION] AI processing completed in ${processingTime}ms`);
       
@@ -101,13 +120,14 @@ exports.handler = async (event, context) => {
           success: true,
           parsedData,
           processingTime,
-          aiProvider: settings.aiProvider,
-          aiModel: settings.aiModel
+          aiProvider,
+          aiModel
         })
       };
       
     } catch (error) {
-      if (error.message === 'AI_TIMEOUT') {
+      // Handle timeout with 8-second limit
+      if (Date.now() - startTime > 8000) {
         console.log('[PARSE-RESUME-AI FUNCTION] AI processing timed out');
         return {
           statusCode: 200,

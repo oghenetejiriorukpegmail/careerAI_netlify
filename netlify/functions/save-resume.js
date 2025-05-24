@@ -15,10 +15,12 @@ exports.handler = async (event, context) => {
 
   try {
     console.log('[SAVE-RESUME FUNCTION] Parsing request body');
-    const { userId, parsedData, extractedText, fileName } = JSON.parse(event.body);
+    const { userId, parsedData, extractedText, fileName, fileType, filePath, fileSize } = JSON.parse(event.body);
     
     console.log('[SAVE-RESUME FUNCTION] User ID:', userId);
     console.log('[SAVE-RESUME FUNCTION] File name:', fileName);
+    console.log('[SAVE-RESUME FUNCTION] File type:', fileType);
+    console.log('[SAVE-RESUME FUNCTION] File path:', filePath);
     console.log('[SAVE-RESUME FUNCTION] Has parsed data:', !!parsedData);
     console.log('[SAVE-RESUME FUNCTION] Has extracted text:', !!extractedText);
 
@@ -37,6 +39,11 @@ exports.handler = async (event, context) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Determine file type from fileName if not provided
+    const finalFileType = fileType || (fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 
+                                      fileName.toLowerCase().endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' :
+                                      fileName.toLowerCase().endsWith('.doc') ? 'application/msword' : 'text/plain');
+
     // Save to database
     console.log('[SAVE-RESUME FUNCTION] Saving to database');
     const { data, error } = await supabase
@@ -44,8 +51,12 @@ exports.handler = async (event, context) => {
       .insert({
         user_id: userId,
         file_name: fileName,
+        file_path: filePath || fileName, // Use filePath if provided, otherwise use fileName as fallback
+        file_type: finalFileType,
+        file_size: fileSize || null,
         parsed_data: parsedData,
         extracted_text: extractedText,
+        processing_status: parsedData ? 'completed' : 'pending',
         created_at: new Date().toISOString()
       })
       .select()
