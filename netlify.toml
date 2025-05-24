@@ -29,11 +29,7 @@
 # Edge Functions configuration
 [edge_functions]
   directory = "netlify/edge-functions"
-
-# Configure Edge Functions
-[[edge_functions]]
-  path = "/api/edge/auth-check"
-  function = "auth-check"
+  # Edge functions are auto-detected from the directory
 
 # Headers for security
 [[headers]]
