@@ -2,15 +2,46 @@
 
 [build]
   command = "npm run build"
+  publish = ".next"
 
 [build.environment]
   # Essential build settings only
   NODE_VERSION = "18"
   NEXT_TELEMETRY_DISABLED = "1"
+  # Ensure Next.js uses standalone mode for better Netlify compatibility
+  NEXT_PRIVATE_STANDALONE = "true"
 
 # Enable Next.js Runtime
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# Function configuration for Next.js API routes
+[functions]
+  # Use esbuild for faster builds
+  node_bundler = "esbuild"
+  # Include necessary files in function bundles
+  included_files = ["node_modules/@google-cloud/**", "lib/**", ".env*"]
+  
+# Set timeout for AI-heavy operations (max 10 seconds on free plan)
+[[functions]]
+  path = "/api/generate-resume"
+  timeout = 10
+
+[[functions]]
+  path = "/api/generate-cover-letter"
+  timeout = 10
+
+[[functions]]
+  path = "/api/resumeupload"
+  timeout = 10
+
+[[functions]]
+  path = "/api/documents/parse"
+  timeout = 10
+
+[[functions]]
+  path = "/api/jobs/match"
+  timeout = 10
 
 # Headers for security
 [[headers]]
@@ -20,3 +51,39 @@
     X-Content-Type-Options = "nosniff"
     X-XSS-Protection = "1; mode=block"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# API CORS headers
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+
+# Cache static assets
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Cache images
+[[headers]]
+  for = "/images/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+# Optimize images
+[build.processing]
+  skip_processing = false
+
+[build.processing.images]
+  compress = true
+
+# Development settings
+[dev]
+  command = "npm run dev"
+  port = 3000
+  targetPort = 3000
+  publish = ".next"
+  autoLaunch = false

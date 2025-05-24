@@ -3,9 +3,13 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
+  // Add performance headers
+  const headers = new Headers(request.headers);
+  headers.set('x-middleware-cache', 'hit');
+  
   let response = NextResponse.next({
     request: {
-      headers: request.headers,
+      headers: headers,
     },
   });
   

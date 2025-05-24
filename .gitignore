@@ -46,3 +46,6 @@ google_document_ai.json
 # IDE
 .vscode/
 .idea/
+
+# Netlify
+.netlify/
