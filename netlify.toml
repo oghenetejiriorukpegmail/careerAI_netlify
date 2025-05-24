@@ -23,57 +23,17 @@
   node_bundler = "esbuild"
   # Include necessary files in function bundles
   included_files = ["node_modules/@google-cloud/**", "lib/**", ".env*", "**/*.json"]
+  # Note: Background functions are configured via export config in the function files
+  # Scheduled functions use cron expressions in their config export
 
 # Edge Functions configuration
 [edge_functions]
   directory = "netlify/edge-functions"
 
-# Configure specific Netlify Functions
-[[functions]]
-  # Background function for resume processing (15 min timeout)
-  path = "/.netlify/functions/process-resume-background"
-  name = "process-resume-background"
-
-[[functions]]
-  # Background function for document generation (15 min timeout)
-  path = "/.netlify/functions/generate-documents-background"
-  name = "generate-documents-background"
-
-[[functions]]
-  # Standard function for health checks
-  path = "/.netlify/functions/health-check"
-  name = "health-check"
-
-[[functions]]
-  # Scheduled function for cleanup
-  path = "/.netlify/functions/cleanup-old-data"
-  name = "cleanup-old-data"
-
 # Configure Edge Functions
 [[edge_functions]]
   path = "/api/edge/auth-check"
   function = "auth-check"
-
-# Set timeout for Next.js API routes (max 10 seconds on free plan)
-[[functions]]
-  path = "/api/generate-resume"
-  timeout = 10
-
-[[functions]]
-  path = "/api/generate-cover-letter"
-  timeout = 10
-
-[[functions]]
-  path = "/api/resumeupload"
-  timeout = 10
-
-[[functions]]
-  path = "/api/documents/parse"
-  timeout = 10
-
-[[functions]]
-  path = "/api/jobs/match"
-  timeout = 10
 
 # Headers for security
 [[headers]]
